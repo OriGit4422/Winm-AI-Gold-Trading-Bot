@@ -5,6 +5,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || "0.0.0.0";
 const GOLD_SYMBOL = "XAU/USD";
 
 type Trend = "bullish" | "bearish" | "neutral";
@@ -363,8 +364,8 @@ async function startServer() {
     app.get("*", (_req, res) => res.sendFile(path.join(distPath, "index.html")));
   }
 
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running: http://localhost:${PORT}`);
+  server.listen(PORT, HOST, () => {
+    console.log(`Server running: http://${HOST}:${PORT}`);
   });
 }
 
