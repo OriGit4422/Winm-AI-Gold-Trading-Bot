@@ -20,29 +20,31 @@ interface StrategyBlock {
   type: 'indicator' | 'logic' | 'action';
   name: string;
   params: Record<string, any>;
+  linkedParams?: Record<string, string>; // paramName -> sourceBlockId
 }
 
 const AVAILABLE_BLOCKS = {
   indicator: [
-    { name: "RSI", params: { period: 14 } },
-    { name: "EMA", params: { period: 200 } },
-    { name: "MACD", params: { fast: 12, slow: 26, signal: 9 } },
-    { name: "Bollinger Bands", params: { period: 20, stdDev: 2 } },
-    { name: "ATR", params: { period: 14 } },
+    { name: "Gold Sentiment", params: { period: 14 } },
+    { name: "Forex Volatility", params: { period: 20 } },
+    { name: "Institutional RSI", params: { period: 14 } },
+    { name: "Neural EMA", params: { period: 200 } },
+    { name: "MACD Pulse", params: { fast: 12, slow: 26, signal: 9 } },
+    { name: "BB Expansion", params: { period: 20, stdDev: 2 } },
   ],
   logic: [
-    { name: "Crosses Above", params: {} },
-    { name: "Crosses Below", params: {} },
-    { name: "Is Greater Than", params: {} },
-    { name: "Is Less Than", params: {} },
+    { name: "Neural Cross Up", params: {} },
+    { name: "Neural Cross Down", params: {} },
+    { name: "Liquidity Sweep", params: {} },
+    { name: "Volume Imbalance", params: {} },
     { name: "AND", params: {} },
     { name: "OR", params: {} },
   ],
   action: [
-    { name: "Open Buy", params: { lotSize: 0.1 } },
-    { name: "Open Sell", params: { lotSize: 0.1 } },
-    { name: "Close All", params: {} },
-    { name: "Set SL/TP", params: { sl: 50, tp: 100 } },
+    { name: "Exec Alpha Buy", params: { lotSize: 0.1 } },
+    { name: "Exec Alpha Sell", params: { lotSize: 0.1 } },
+    { name: "Emergency Close", params: {} },
+    { name: "Trail SL/TP", params: { sl: 50, tp: 100 } },
   ]
 };
 
@@ -67,7 +69,29 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
 
   const updateParam = (blockId: string, param: string, value: any) => {
     setBlocks(blocks.map(b => 
-      b.id === blockId ? { ...b, params: { ...b.params, [param]: value } } : b
+      b.id === blockId ? { 
+        ...b, 
+        params: { ...b.params, [param]: value },
+        linkedParams: { ...b.linkedParams, [param]: undefined } as any
+      } : b
+    ));
+  };
+
+  const linkParam = (blockId: string, param: string, sourceBlockId: string) => {
+    setBlocks(blocks.map(b => 
+      b.id === blockId ? { 
+        ...b, 
+        linkedParams: { ...b.linkedParams, [param]: sourceBlockId } 
+      } : b
+    ));
+  };
+
+  const unlinkParam = (blockId: string, param: string) => {
+    setBlocks(blocks.map(b => 
+      b.id === blockId ? { 
+        ...b, 
+        linkedParams: { ...b.linkedParams, [param]: undefined } as any
+      } : b
     ));
   };
 
@@ -210,17 +234,65 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
                         </div>
                         
                         <div className="flex flex-wrap gap-4">
-                          {Object.entries(block.params).map(([key, val]) => (
-                            <div key={key} className="flex flex-col gap-1">
-                              <label className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold">{key}</label>
-                              <input 
-                                type="number"
-                                value={val}
-                                onChange={(e) => updateParam(block.id, key, parseFloat(e.target.value))}
-                                className="bg-surface-container-lowest border border-outline-variant/20 rounded px-2 py-1 text-xs font-bold w-20 outline-none focus:border-primary transition-colors"
-                              />
-                            </div>
-                          ))}
+                          {Object.entries(block.params).map(([key, val]) => {
+                            const linkedBlockId = block.linkedParams?.[key];
+                            const linkedBlock = blocks.find(b => b.id === linkedBlockId);
+                            const availableSources = blocks.filter(b => b.id !== block.id && b.type === 'indicator');
+
+                            return (
+                              <div key={key} className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <label className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold">{key}</label>
+                                  <div className="flex items-center gap-1">
+                                    {availableSources.length > 0 && (
+                                      <button 
+                                        onClick={() => linkedBlockId ? unlinkParam(block.id, key) : null}
+                                        className={`p-0.5 rounded transition-colors ${linkedBlockId ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-primary'}`}
+                                        title={linkedBlockId ? "Unlink Parameter" : "Link to another block"}
+                                      >
+                                        <ArrowRightLeft className="w-2.5 h-2.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                {linkedBlockId ? (
+                                  <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded px-2 py-1">
+                                    <Zap className="w-2.5 h-2.5 text-primary" />
+                                    <span className="text-[10px] font-bold text-primary truncate max-w-[80px]">
+                                      {linkedBlock?.name || 'Unknown'}
+                                    </span>
+                                    <button onClick={() => unlinkParam(block.id, key)}>
+                                      <X className="w-2.5 h-2.5 text-primary/60 hover:text-primary" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1">
+                                    <input 
+                                      type="number"
+                                      value={val}
+                                      onChange={(e) => updateParam(block.id, key, parseFloat(e.target.value))}
+                                      className="bg-surface-container-lowest border border-outline-variant/20 rounded px-2 py-1 text-xs font-bold w-16 outline-none focus:border-primary transition-colors"
+                                    />
+                                    {availableSources.length > 0 && (
+                                      <select 
+                                        className="bg-surface-container-lowest border border-outline-variant/20 rounded px-1 py-1 text-[9px] font-bold w-20 outline-none focus:border-primary transition-colors text-on-surface-variant"
+                                        onChange={(e) => {
+                                          if (e.target.value) linkParam(block.id, key, e.target.value);
+                                        }}
+                                        value=""
+                                      >
+                                        <option value="" disabled>Link...</option>
+                                        {availableSources.map(s => (
+                                          <option key={s.id} value={s.id}>{s.name}</option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -256,7 +328,16 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
                   <pre className="text-[10px] font-mono text-primary leading-relaxed overflow-x-auto">
                     {blocks.length === 0 ? '// No logic defined' : (
                       blocks.map(b => {
-                        if (b.type === 'indicator') return `IF ${b.name}(${Object.values(b.params).join(',')})`;
+                        const paramsStr = Object.entries(b.params).map(([k, v]) => {
+                          const linkedId = b.linkedParams?.[k];
+                          if (linkedId) {
+                            const source = blocks.find(s => s.id === linkedId);
+                            return `${k}: @${source?.name || 'unknown'}`;
+                          }
+                          return `${k}: ${v}`;
+                        }).join(', ');
+
+                        if (b.type === 'indicator') return `IF ${b.name}(${paramsStr})`;
                         if (b.type === 'logic') return `  ${b.name}`;
                         return `THEN ${b.name}`;
                       }).join('\n')
