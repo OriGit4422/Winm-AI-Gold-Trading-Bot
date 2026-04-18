@@ -11,10 +11,15 @@ import {
   ChevronRight,
   ChevronLeft,
   Clock,
-  ArrowRightLeft
+  ArrowRightLeft,
+  ChevronDown,
+  ChevronUp,
+  LineChart as LineChartIcon,
+  Search,
+  Target
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, Line } from "recharts";
 import { useAssetHistory, useMarketData, Timeframe } from "../services/marketService";
 import { getSentiment, Sentiment } from "../services/geminiService";
 
@@ -25,13 +30,28 @@ interface AssetDetailViewProps {
 
 export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>("1m");
+  const [comparisonAssetId, setComparisonAssetId] = useState<string | null>(null);
   const history = useAssetHistory(assetId, timeframe, 100);
+  const comparisonHistory = useAssetHistory(comparisonAssetId || "BTC/USDT", timeframe, 100);
   const { data: marketData, orderBooks } = useMarketData();
   const [sentiment, setSentiment] = useState<Sentiment | null>(null);
   const [loadingSentiment, setLoadingSentiment] = useState(false);
+  const [isExecutionOpen, setIsExecutionOpen] = useState(false);
 
   const assetData = marketData.find(a => a.id === assetId);
   const orderBook = orderBooks[assetId];
+
+  const maxOrderSize = useMemo(() => {
+    if (!orderBook) return 0;
+    const allOrders = [...(orderBook.bids || []), ...(orderBook.asks || [])];
+    return Math.max(...allOrders.map(o => o[1]), 0.0001);
+  }, [orderBook]);
+
+  const mockSignals = useMemo(() => [
+    { id: assetId, type: "BULLISH DIVERGENCE", confidence: 88, price: parseFloat(assetData?.price || "0") * 1.02 },
+    { id: "ETH/USDT", type: "VOLATILITY SPIKE", confidence: 72, price: 2345.50 },
+    { id: "XAU/USD", type: "LIQUIDITY GAP", confidence: 94, price: 2150.20 }
+  ], [assetId, assetData]);
 
   useEffect(() => {
     async function fetchSentiment() {
@@ -97,6 +117,21 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Comparison Selection */}
+            <div className="hidden sm:flex items-center gap-2 bg-surface-container-high px-3 py-1.5 rounded-sm border border-outline-variant/10">
+              <LineChartIcon className="w-3.5 h-3.5 text-primary" />
+              <select 
+                value={comparisonAssetId || ""} 
+                onChange={(e) => setComparisonAssetId(e.target.value || null)}
+                className="bg-transparent text-[10px] font-bold uppercase tracking-widest text-on-surface outline-none cursor-pointer"
+              >
+                <option value="" className="bg-surface">No Comparison</option>
+                {marketData.filter(a => a.id !== assetId).map(a => (
+                  <option key={a.id} value={a.id} className="bg-surface">{a.id}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex bg-surface-container-high p-1 rounded-sm gap-1">
               {(["1m", "5m", "1H", "1D"] as const).map(tf => (
                 <button
@@ -131,7 +166,10 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                 </div>
                 
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={history}>
+                  <AreaChart data={history.map((h, i) => ({
+                    ...h,
+                    comparePrice: comparisonAssetId && comparisonHistory[i] ? comparisonHistory[i].price : undefined
+                  }))}>
                     <defs>
                       <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.3}/>
@@ -147,19 +185,32 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                       minTickGap={50}
                     />
                     <YAxis 
+                      yAxisId="primary"
                       domain={['auto', 'auto']} 
                       orientation="right" 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.2)', fontFamily: 'monospace' }}
+                      tick={{ fontSize: 9, fill: 'var(--color-primary)', fontFamily: 'monospace' }}
                       width={60}
                     />
+                    {comparisonAssetId && (
+                      <YAxis 
+                        yAxisId="compare"
+                        domain={['auto', 'auto']} 
+                        orientation="left" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}
+                        width={60}
+                      />
+                    )}
                     <Tooltip 
                       contentStyle={{ backgroundColor: 'rgba(28, 27, 31, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '10px' }}
                       itemStyle={{ color: 'var(--color-primary)', fontWeight: 'bold' }}
                       animationDuration={150}
                     />
                     <Area 
+                      yAxisId="primary"
                       type="monotone" 
                       dataKey="price" 
                       stroke="var(--color-primary)" 
@@ -167,7 +218,21 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                       fillOpacity={1} 
                       fill="url(#colorPrice)" 
                       isAnimationActive={false}
+                      name={assetId}
                     />
+                    {comparisonAssetId && (
+                      <Line
+                        yAxisId="compare"
+                        type="monotone"
+                        dataKey="comparePrice"
+                        stroke="rgba(255,255,255,0.3)"
+                        strokeWidth={1.5}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        isAnimationActive={false}
+                        name={comparisonAssetId}
+                      />
+                    )}
                   </AreaChart>
                 </ResponsiveContainer>
                 
@@ -259,7 +324,10 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                   <div className="space-y-1">
                     {(orderBook?.asks || Array.from({ length: 8 }).map(() => [0, 0])).slice(0, 8).map((ask, i) => (
                       <div key={i} className="flex justify-between items-center text-[11px] font-mono group relative py-1">
-                        <div className="absolute inset-0 bg-tertiary-container/5 -z-10" style={{ width: `${Math.random() * 80}%`, right: 0 }} />
+                        <div 
+                          className="absolute inset-y-0 right-0 bg-tertiary-container/10 -z-10 transition-all duration-300" 
+                          style={{ width: `${((ask[1] || (Math.random() * 2)) / maxOrderSize) * 100}%` }} 
+                        />
                         <span className="text-tertiary-container font-bold">{(ask[0] || (parseFloat(assetData?.price || "0") * (1 + (i + 1) * 0.0001))).toFixed(2)}</span>
                         <span className="text-on-surface/40">{(ask[1] || (Math.random() * 2)).toFixed(4)}</span>
                       </div>
@@ -267,16 +335,19 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                   </div>
 
                   {/* Spread */}
-                  <div className="py-4 border-y border-outline-variant/10 text-center">
-                    <p className="text-[10px] text-on-surface/30 uppercase font-bold tracking-widest mb-1">Spread</p>
-                    <p className="text-sm font-mono font-bold text-on-surface">0.12 (0.01%)</p>
+                  <div className="py-2 border-y border-outline-variant/10 text-center">
+                    <p className="text-[9px] text-on-surface/30 uppercase font-bold tracking-widest mb-0.5">Spread</p>
+                    <p className="text-xs font-mono font-bold text-on-surface">0.12 (0.01%)</p>
                   </div>
 
                   {/* Bids */}
                   <div className="space-y-1">
                     {(orderBook?.bids || Array.from({ length: 8 }).map(() => [0, 0])).slice(0, 8).map((bid, i) => (
                       <div key={i} className="flex justify-between items-center text-[11px] font-mono group relative py-1">
-                        <div className="absolute inset-0 bg-secondary-container/5 -z-10" style={{ width: `${Math.random() * 80}%`, left: 0 }} />
+                        <div 
+                          className="absolute inset-y-0 left-0 bg-secondary-container/10 -z-10 transition-all duration-300" 
+                          style={{ width: `${((bid[1] || (Math.random() * 2)) / maxOrderSize) * 100}%` }} 
+                        />
                         <span className="text-secondary-container font-bold">{(bid[0] || (parseFloat(assetData?.price || "0") * (1 - (i + 1) * 0.0001))).toFixed(2)}</span>
                         <span className="text-on-surface/40">{(bid[1] || (Math.random() * 2)).toFixed(4)}</span>
                       </div>
@@ -284,15 +355,84 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                   </div>
                 </div>
 
-                <div className="mt-10 pt-8 border-t border-outline-variant/10">
-                  <h4 className="text-[10px] uppercase tracking-widest font-bold text-on-surface/30 mb-4">Execution Protocol</h4>
+                <div className="mt-6 pt-6 border-t border-outline-variant/10">
+                  <button 
+                    onClick={() => setIsExecutionOpen(!isExecutionOpen)}
+                    className="w-full flex items-center justify-between text-[10px] uppercase tracking-widest font-bold text-on-surface/60 hover:text-primary transition-colors mb-4"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Zap className="w-3.5 h-3.5" />
+                      Execution Protocol
+                    </span>
+                    {isExecutionOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                  
+                  <AnimatePresence>
+                    {isExecutionOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden mb-6"
+                      >
+                        <div className="space-y-3 p-3 bg-surface-container-high/50 rounded-lg border border-outline-variant/5">
+                          {[
+                            { label: "Neural Latency", value: "< 0.1ms", icon: Activity },
+                            { label: "Slippage Control", value: "Adaptive 0.05%", icon: ShieldCheck },
+                            { label: "Confirmations", value: "Smart Batching", icon: Zap }
+                          ].map((item, i) => (
+                            <div key={i} className="flex items-center justify-between text-[10px]">
+                              <span className="flex items-center gap-2 text-on-surface/40">
+                                <item.icon className="w-3 h-3" />
+                                {item.label}
+                              </span>
+                              <span className="font-mono font-bold text-on-surface/80">{item.value}</span>
+                            </div>
+                          ))}
+                          <p className="text-[9px] text-on-surface/30 italic leading-tight mt-2">
+                            Advanced neural routing ensures optimal fill rates across 42+ liquidity providers.
+                          </p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
                   <div className="grid grid-cols-2 gap-4">
-                    <button className="py-3 bg-secondary-container/10 border border-secondary-container/20 text-secondary-container text-[10px] font-black uppercase tracking-widest rounded hover:bg-secondary-container/20 transition-all">
+                    <button className="py-3 bg-secondary-container/10 border border-secondary-container/20 text-secondary-container text-[10px] font-black uppercase tracking-widest rounded hover:bg-secondary-container/20 transition-all flex items-center justify-center gap-2">
+                      <TrendingUp className="w-3.5 h-3.5" />
                       Neural Buy
                     </button>
-                    <button className="py-3 bg-tertiary-container/10 border border-tertiary-container/20 text-tertiary-container text-[10px] font-black uppercase tracking-widest rounded hover:bg-tertiary-container/20 transition-all">
+                    <button className="py-3 bg-tertiary-container/10 border border-tertiary-container/20 text-tertiary-container text-[10px] font-black uppercase tracking-widest rounded hover:bg-tertiary-container/20 transition-all flex items-center justify-center gap-2">
+                      <TrendingDown className="w-3.5 h-3.5" />
                       Neural Sell
                     </button>
+                  </div>
+                </div>
+
+                {/* Simulated Trading Signals Section */}
+                <div className="mt-8 pt-8 border-t border-outline-variant/10">
+                  <h4 className="text-[10px] uppercase tracking-widest font-bold text-primary mb-6 flex items-center gap-2">
+                    <Target className="w-4 h-4" />
+                    Neural Trading Signals
+                  </h4>
+                  <div className="space-y-3">
+                    {mockSignals.map((sig, i) => (
+                      <div key={i} className="bg-surface-container-high/30 p-4 rounded-xl border border-outline-variant/10 group hover:border-primary/30 transition-all">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <p className="text-[11px] font-black text-on-surface mb-0.5">{sig.id}</p>
+                            <p className="text-[9px] font-bold text-secondary-container uppercase tracking-tighter">{sig.type}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-mono font-bold text-on-surface">${sig.price.toFixed(2)}</p>
+                            <p className="text-[9px] font-bold text-on-surface/40 uppercase">Confidence: {sig.confidence}%</p>
+                          </div>
+                        </div>
+                        <button className="w-full py-2 bg-on-surface/5 hover:bg-primary hover:text-on-primary text-[9px] font-black uppercase tracking-widest rounded transition-all">
+                          Trade Now
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
