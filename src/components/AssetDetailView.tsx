@@ -37,6 +37,7 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
   const [sentiment, setSentiment] = useState<Sentiment | null>(null);
   const [loadingSentiment, setLoadingSentiment] = useState(false);
   const [isExecutionOpen, setIsExecutionOpen] = useState(false);
+  const [isExecuting, setIsExecuting] = useState<'buy' | 'sell' | null>(null);
 
   const assetData = marketData.find(a => a.id === assetId);
   const orderBook = orderBooks[assetId];
@@ -52,6 +53,13 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
     { id: "ETH/USDT", type: "VOLATILITY SPIKE", confidence: 72, price: 2345.50 },
     { id: "XAU/USD", type: "LIQUIDITY GAP", confidence: 94, price: 2150.20 }
   ], [assetId, assetData]);
+
+  const handleExecution = (type: 'buy' | 'sell') => {
+    setIsExecuting(type);
+    setTimeout(() => {
+      setIsExecuting(null);
+    }, 1500);
+  };
 
   useEffect(() => {
     async function fetchSentiment() {
@@ -162,7 +170,21 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                     <Activity className="w-4 h-4 text-primary" />
                     <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface/40">Market Trajectory</span>
                   </div>
-                  <h3 className="text-xl font-bold font-mono">{assetData?.price}</h3>
+                  <h3 className="text-xl font-bold font-mono transition-all duration-75">
+                    <motion.span
+                      key={assetData?.price}
+                      animate={isExecuting ? { 
+                        color: [
+                          'var(--color-on-surface)', 
+                          isExecuting === 'buy' ? 'var(--color-secondary-container)' : 'var(--color-tertiary-container)',
+                          'var(--color-on-surface)'
+                        ],
+                        scale: [1, 1.05, 1]
+                      } : {}}
+                    >
+                      {assetData?.price}
+                    </motion.span>
+                  </h3>
                 </div>
                 
                 <ResponsiveContainer width="100%" height="100%">
@@ -205,9 +227,24 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                       />
                     )}
                     <Tooltip 
-                      contentStyle={{ backgroundColor: 'rgba(28, 27, 31, 0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', fontSize: '10px' }}
-                      itemStyle={{ color: 'var(--color-primary)', fontWeight: 'bold' }}
-                      animationDuration={150}
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-surface-container-highest border border-outline-variant/20 p-3 rounded-lg shadow-2xl backdrop-blur-md">
+                              <p className="text-[9px] text-on-surface/40 uppercase font-black mb-2 border-b border-outline-variant/10 pb-1">{label}</p>
+                              {payload.map((entry: any, i: number) => (
+                                <div key={i} className="flex flex-col mb-1 last:mb-0">
+                                  <span className="text-[8px] text-on-surface/30 uppercase font-bold tracking-tighter">{entry.name}</span>
+                                  <span className={`text-xs font-mono font-bold ${entry.name === assetId ? 'text-primary' : 'text-on-surface/60'}`}>
+                                    ${entry.value.toLocaleString()}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
                     />
                     <Area 
                       yAxisId="primary"
@@ -322,36 +359,63 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                 <div className="space-y-6">
                   {/* Asks */}
                   <div className="space-y-1">
-                    {(orderBook?.asks || Array.from({ length: 8 }).map(() => [0, 0])).slice(0, 8).map((ask, i) => (
-                      <div key={i} className="flex justify-between items-center text-[11px] font-mono group relative py-1">
-                        <div 
-                          className="absolute inset-y-0 right-0 bg-tertiary-container/10 -z-10 transition-all duration-300" 
-                          style={{ width: `${((ask[1] || (Math.random() * 2)) / maxOrderSize) * 100}%` }} 
-                        />
-                        <span className="text-tertiary-container font-bold">{(ask[0] || (parseFloat(assetData?.price || "0") * (1 + (i + 1) * 0.0001))).toFixed(2)}</span>
-                        <span className="text-on-surface/40">{(ask[1] || (Math.random() * 2)).toFixed(4)}</span>
-                      </div>
-                    ))}
+                    {(orderBook?.asks || Array.from({ length: 8 }).map(() => [0, 0])).slice(0, 8).map((ask, i) => {
+                      const size = ask[1] || (Math.random() * 2);
+                      const percent = (size / maxOrderSize) * 100;
+                      return (
+                        <div key={i} className="flex justify-between items-center text-[11px] font-mono group relative py-1 px-1 cursor-crosshair hover:bg-on-surface/5 transition-colors">
+                          <div 
+                            className="absolute inset-y-0 right-0 -z-10 transition-all duration-500 ease-out flex justify-end" 
+                            style={{ 
+                              width: `${percent}%`,
+                              background: `linear-gradient(to left, var(--color-tertiary-container), transparent)`,
+                              opacity: 0.15
+                            }} 
+                          >
+                            <div className="w-[1px] h-full bg-tertiary-container/30" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-tertiary-container font-bold">{(ask[0] || (parseFloat(assetData?.price || "0") * (1 + (i + 1) * 0.0001))).toFixed(2)}</span>
+                            <span className="text-[8px] text-tertiary-container/40 opacity-0 group-hover:opacity-100 transition-opacity">SELL</span>
+                          </div>
+                          <span className="text-on-surface/40 group-hover:text-on-surface transition-colors">{size.toFixed(4)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/* Spread */}
-                  <div className="py-2 border-y border-outline-variant/10 text-center">
-                    <p className="text-[9px] text-on-surface/30 uppercase font-bold tracking-widest mb-0.5">Spread</p>
-                    <p className="text-xs font-mono font-bold text-on-surface">0.12 (0.01%)</p>
+                  <div className="py-3 border-y border-outline-variant/10 flex flex-col items-center justify-center relative overflow-hidden">
+                    <div className="absolute inset-0 bg-primary/5 animate-pulse" />
+                    <p className="text-[9px] text-on-surface/30 uppercase font-bold tracking-widest mb-0.5 relative z-10">Neural Spread</p>
+                    <p className="text-xs font-mono font-bold text-on-surface relative z-10">0.12 <span className="text-[9px] opacity-40">(0.01%)</span></p>
                   </div>
 
                   {/* Bids */}
                   <div className="space-y-1">
-                    {(orderBook?.bids || Array.from({ length: 8 }).map(() => [0, 0])).slice(0, 8).map((bid, i) => (
-                      <div key={i} className="flex justify-between items-center text-[11px] font-mono group relative py-1">
-                        <div 
-                          className="absolute inset-y-0 left-0 bg-secondary-container/10 -z-10 transition-all duration-300" 
-                          style={{ width: `${((bid[1] || (Math.random() * 2)) / maxOrderSize) * 100}%` }} 
-                        />
-                        <span className="text-secondary-container font-bold">{(bid[0] || (parseFloat(assetData?.price || "0") * (1 - (i + 1) * 0.0001))).toFixed(2)}</span>
-                        <span className="text-on-surface/40">{(bid[1] || (Math.random() * 2)).toFixed(4)}</span>
-                      </div>
-                    ))}
+                    {(orderBook?.bids || Array.from({ length: 8 }).map(() => [0, 0])).slice(0, 8).map((bid, i) => {
+                      const size = bid[1] || (Math.random() * 2);
+                      const percent = (size / maxOrderSize) * 100;
+                      return (
+                        <div key={i} className="flex justify-between items-center text-[11px] font-mono group relative py-1 px-1 cursor-crosshair hover:bg-on-surface/5 transition-colors">
+                          <div 
+                            className="absolute inset-y-0 left-0 -z-10 transition-all duration-500 ease-out border-r border-secondary-container/20" 
+                            style={{ 
+                              width: `${percent}%`,
+                              background: `linear-gradient(to right, var(--color-secondary-container), transparent)`,
+                              opacity: 0.15
+                            }} 
+                          >
+                            <div className="absolute right-0 w-[1px] h-full bg-secondary-container/30" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-secondary-container font-bold">{(bid[0] || (parseFloat(assetData?.price || "0") * (1 - (i + 1) * 0.0001))).toFixed(2)}</span>
+                            <span className="text-[8px] text-secondary-container/40 opacity-0 group-hover:opacity-100 transition-opacity">BUY</span>
+                          </div>
+                          <span className="text-on-surface/40 group-hover:text-on-surface transition-colors">{size.toFixed(4)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -398,39 +462,96 @@ export function AssetDetailView({ assetId, onClose }: AssetDetailViewProps) {
                   </AnimatePresence>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <button className="py-3 bg-secondary-container/10 border border-secondary-container/20 text-secondary-container text-[10px] font-black uppercase tracking-widest rounded hover:bg-secondary-container/20 transition-all flex items-center justify-center gap-2">
-                      <TrendingUp className="w-3.5 h-3.5" />
-                      Neural Buy
+                    <button 
+                      onClick={() => handleExecution('buy')}
+                      className={`py-3 text-[10px] font-black uppercase tracking-widest rounded transition-all flex items-center justify-center gap-2 border ${
+                        isExecuting === 'buy' 
+                          ? 'bg-secondary-container text-on-secondary-container border-secondary-container animate-pulse' 
+                          : 'bg-secondary-container/10 border-secondary-container/20 text-secondary-container hover:bg-secondary-container/20'
+                      }`}
+                    >
+                      {isExecuting === 'buy' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <TrendingUp className="w-3.5 h-3.5" />}
+                      {isExecuting === 'buy' ? 'Executing...' : 'Neural Buy'}
                     </button>
-                    <button className="py-3 bg-tertiary-container/10 border border-tertiary-container/20 text-tertiary-container text-[10px] font-black uppercase tracking-widest rounded hover:bg-tertiary-container/20 transition-all flex items-center justify-center gap-2">
-                      <TrendingDown className="w-3.5 h-3.5" />
-                      Neural Sell
+                    <button 
+                      onClick={() => handleExecution('sell')}
+                      className={`py-3 text-[10px] font-black uppercase tracking-widest rounded transition-all flex items-center justify-center gap-2 border ${
+                        isExecuting === 'sell' 
+                          ? 'bg-tertiary-container text-on-tertiary-container border-tertiary-container animate-pulse' 
+                          : 'bg-tertiary-container/10 border-tertiary-container/20 text-tertiary-container hover:bg-tertiary-container/20'
+                      }`}
+                    >
+                      {isExecuting === 'sell' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                      {isExecuting === 'sell' ? 'Executing...' : 'Neural Sell'}
                     </button>
                   </div>
                 </div>
 
                 {/* Simulated Trading Signals Section */}
                 <div className="mt-8 pt-8 border-t border-outline-variant/10">
-                  <h4 className="text-[10px] uppercase tracking-widest font-bold text-primary mb-6 flex items-center gap-2">
-                    <Target className="w-4 h-4" />
-                    Neural Trading Signals
-                  </h4>
-                  <div className="space-y-3">
+                  <div className="flex items-center justify-between mb-6">
+                    <h4 className="text-[10px] uppercase tracking-widest font-bold text-primary flex items-center gap-2">
+                      <Target className="w-4 h-4" />
+                      Neural Signal Nexus
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-primary/40 rounded-full" />
+                      <span className="text-[8px] font-bold text-on-surface/30 uppercase tracking-widest underline decoration-primary/20 underline-offset-4">Deep Learning Sync</span>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
                     {mockSignals.map((sig, i) => (
-                      <div key={i} className="bg-surface-container-high/30 p-4 rounded-xl border border-outline-variant/10 group hover:border-primary/30 transition-all">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <p className="text-[11px] font-black text-on-surface mb-0.5">{sig.id}</p>
-                            <p className="text-[9px] font-bold text-secondary-container uppercase tracking-tighter">{sig.type}</p>
+                      <div key={i} className="bg-surface-container-high/20 p-5 rounded-2xl border border-outline-variant/10 group hover:border-primary/40 hover:bg-surface-container-high/40 transition-all duration-300 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 blur-3xl -mr-16 -mt-16 group-hover:bg-primary/10 transition-colors" />
+                        
+                        <div className="flex justify-between items-start mb-4 relative z-10">
+                          <div className="flex items-center gap-3">
+                            <motion.div
+                              animate={{ 
+                                scale: [1, 1.2, 1],
+                                opacity: [0.5, 1, 0.5]
+                              }}
+                              transition={{ 
+                                duration: 2,
+                                repeat: Infinity,
+                                ease: "easeInOut"
+                              }}
+                              className="w-2 h-2 rounded-full bg-primary"
+                            />
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <p className="text-sm font-black text-on-surface tracking-tight">{sig.id}</p>
+                                <div className="px-1.5 py-0.5 rounded-[4px] bg-secondary-container/10 text-secondary-container text-[8px] font-black uppercase tracking-tighter shadow-sm">
+                                  {sig.confidence > 85 ? 'High Conviction' : 'Medium Conviction'}
+                                </div>
+                              </div>
+                              <p className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest">{sig.type}</p>
+                            </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-[10px] font-mono font-bold text-on-surface">${sig.price.toFixed(2)}</p>
-                            <p className="text-[9px] font-bold text-on-surface/40 uppercase">Confidence: {sig.confidence}%</p>
+                            <p className="text-base font-mono font-black text-on-surface">${sig.price.toFixed(2)}</p>
+                            <div className="flex items-center justify-end gap-1.5 mt-1">
+                              <div className="w-20 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${sig.confidence}%` }}
+                                  className="h-full bg-primary"
+                                />
+                              </div>
+                              <p className="text-[9px] font-mono font-bold text-primary">{sig.confidence}%</p>
+                            </div>
                           </div>
                         </div>
-                        <button className="w-full py-2 bg-on-surface/5 hover:bg-primary hover:text-on-primary text-[9px] font-black uppercase tracking-widest rounded transition-all">
-                          Trade Now
-                        </button>
+                        
+                        <div className="flex items-center gap-3 relative z-10">
+                          <button className="flex-1 py-2.5 bg-on-surface text-surface hover:bg-primary hover:text-on-primary text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-black/20 transform group-hover:scale-[1.02]">
+                            Neural Execution
+                          </button>
+                          <button className="w-10 h-10 flex items-center justify-center bg-surface-container-highest rounded-xl border border-outline-variant/10 text-on-surface/40 hover:text-on-surface hover:border-primary/20 transition-all">
+                            <Activity className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

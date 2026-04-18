@@ -242,7 +242,12 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
                             return (
                               <div key={key} className="flex flex-col gap-1">
                                 <div className="flex items-center justify-between gap-2">
-                                  <label className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold">{key}</label>
+                                  <div className="flex items-center gap-1.5">
+                                    <label className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold">{key}</label>
+                                    <div title={`Linking this to another block allows dynamic parameter synchronization (e.g. using ${key} from an indicator's output).`}>
+                                      <Info className="w-2.5 h-2.5 text-on-surface/20 hover:text-primary cursor-help transition-colors" />
+                                    </div>
+                                  </div>
                                   <div className="flex items-center gap-1">
                                     {availableSources.length > 0 && (
                                       <button 
