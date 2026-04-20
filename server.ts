@@ -177,16 +177,36 @@ async function startServer() {
       }
 
       const response = await fetch(
-        `https://newsapi.org/v2/everything?q=${query}&sortBy=publishedAt&language=en&pageSize=12&apiKey=${apiKey}`
+        `https://newsapi.org/v2/everything?q=${query}&sortBy=publishedAt&language=en&pageSize=12&apiKey=${apiKey}`,
+        {
+          headers: {
+            "User-Agent": "Institutional-Trading-Terminal/1.0",
+            "Accept": "application/json"
+          }
+        }
       );
 
+      const contentType = response.headers.get("content-type");
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        return res.status(response.status).json(errorData);
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          return res.status(response.status).json(errorData);
+        } else {
+          const text = await response.text();
+          console.error("NewsAPI Error (Non-JSON):", text.slice(0, 200));
+          return res.status(response.status).json({ error: "Source API error" });
+        }
       }
 
-      const data = await response.json();
-      res.json(data);
+      if (contentType && contentType.includes("application/json")) {
+        const data = await response.json();
+        res.json(data);
+      } else {
+        const text = await response.text();
+        console.error("NewsAPI Unexpected Response (Non-JSON):", text.slice(0, 200));
+        res.status(502).json({ error: "Invalid response from news provider" });
+      }
     } catch (error) {
       console.error("Server news fetch error:", error);
       res.status(500).json({ error: "Internal server error fetching news" });
@@ -227,11 +247,21 @@ async function startServer() {
 
   app.get("/api/cot", async (req, res) => {
     try {
-      // CFTC Socrata API - Traders in Financial Futures (Historical/Current)
-      // Filter for Gold (XAU) - usually 'GOLD - COMMODITY EXCHANGE INC.'
-      const response = await fetch("https://public.cftc.gov/resource/66gz-6m6d.json?$limit=1&$order=report_date_as_yyyy_mm_dd%20DESC&market_and_exchange_names=GOLD%20-%20COMMODITY%20EXCHANGE%20INC.");
+      // Use the standard Socrata data domain for CFTC
+      // Filter for Gold (XAU) - TFF report
+      const url = "https://data.cftc.gov/resource/66gz-6m6d.json?$limit=1&$order=report_date_as_yyyy_mm_dd%20DESC&market_and_exchange_names=GOLD%20-%20COMMODITY%20EXCHANGE%20INC.";
       
-      if (!response.ok) throw new Error("CFTC fetch failed");
+      const response = await fetch(url, {
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "Institutional-Trading-Terminal/1.0"
+        }
+      });
+      
+      if (!response.ok) {
+        console.error(`CFTC API responded with status: ${response.status}`);
+        return res.status(200).json({ error: "CFTC API unavailable", fallback: true });
+      }
       
       const data = await response.json();
       const latest = data[0];
@@ -239,7 +269,7 @@ async function startServer() {
       if (!latest) return res.json({ error: "No COT data found" });
 
       res.json({
-        date: latest.report_date_as_yyyy_mm_dd.split('T')[0],
+        date: latest.report_date_as_yyyy_mm_dd?.split('T')[0] || new Date().toISOString().split('T')[0],
         commercials: {
           long: parseFloat(latest.comm_positions_long_all) || 0,
           short: parseFloat(latest.comm_positions_short_all) || 0,
@@ -253,7 +283,8 @@ async function startServer() {
       });
     } catch (error) {
       console.error("COT API error:", error);
-      res.status(500).json({ error: "COT data fetch failed" });
+      // Return 200 with error info so client can use fallback without 500 error in console
+      res.status(200).json({ error: "COT data fetch failed", fallback: true });
     }
   });
 

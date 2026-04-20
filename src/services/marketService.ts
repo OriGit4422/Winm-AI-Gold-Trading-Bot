@@ -32,6 +32,7 @@ export interface FootprintCandle {
   close: number;
   levels: OrderFlowPoint[];
   totalDelta: number;
+  totalVolume: number;
   cvd: number;
 }
 
@@ -212,7 +213,9 @@ export function useCOTData(assetId: string) {
       setLoading(true);
       try {
         const res = await fetch("/api/cot");
-        if (res.ok) {
+        const contentType = res.headers.get("content-type");
+
+        if (res.ok && contentType && contentType.includes("application/json")) {
           const data = await res.json();
           if (data.error) throw new Error(data.error);
 
@@ -224,6 +227,8 @@ export function useCOTData(assetId: string) {
             retail: { long: 0, short: 0, net: 0 },
             sentiment: (data.nonCommercials?.net || 0) > 0 ? 'bullish' : 'bearish'
           });
+        } else {
+          throw new Error(`Invalid response: ${res.status}`);
         }
       } catch (e) {
         console.error("COT fetch failed, using fallback:", e);
@@ -254,12 +259,16 @@ export function useIntermarketData() {
     const fetchIntermarket = async () => {
       try {
         const res = await fetch("/api/intermarket");
-        if (res.ok) {
+        const contentType = res.headers.get("content-type");
+        
+        if (res.ok && contentType && contentType.includes("application/json")) {
           const data = await res.json();
           setIntermarket({
             ...data,
             timestamp: new Date().toISOString()
           });
+        } else if (!res.ok) {
+          console.error("Intermarket API error:", res.status);
         }
       } catch (e) {
         console.error("Intermarket fetch failed:", e);
@@ -316,6 +325,7 @@ export function useOrderFlow(assetId: string, timeframe: Timeframe = "1m") {
             close: price,
             levels: [{ price, buyVol: !isBuyerMaker ? quantity : 0, sellVol: isBuyerMaker ? quantity : 0, delta: delta, isPOC: true }],
             totalDelta: delta,
+            totalVolume: quantity,
             cvd: cvdAccumulator + delta
           };
           
@@ -340,9 +350,12 @@ export function useOrderFlow(assetId: string, timeframe: Timeframe = "1m") {
             };
           }
 
-          // Recalculate POC
+          // Recalculate POC immutably
           const maxVol = Math.max(...updatedLevels.map(l => l.buyVol + l.sellVol));
-          updatedLevels.forEach(l => l.isPOC = (l.buyVol + l.sellVol === maxVol));
+          const levelsWithPOC = updatedLevels.map(l => ({
+            ...l,
+            isPOC: (l.buyVol + l.sellVol === maxVol)
+          }));
 
           cvdAccumulator += delta;
           setLatestCVD(cvdAccumulator);
@@ -352,8 +365,9 @@ export function useOrderFlow(assetId: string, timeframe: Timeframe = "1m") {
             high: Math.max(lastCandle.high, price),
             low: Math.min(lastCandle.low, price),
             close: price,
-            levels: updatedLevels,
+            levels: levelsWithPOC,
             totalDelta: lastCandle.totalDelta + delta,
+            totalVolume: lastCandle.totalVolume + quantity,
             cvd: cvdAccumulator
           };
 

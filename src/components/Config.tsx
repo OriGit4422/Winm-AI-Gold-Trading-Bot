@@ -1,17 +1,12 @@
-import { Landmark, ShieldCheck, Zap, Activity, Bolt, Play, History, TrendingUp, BarChart3, Loader2, Settings2 } from "lucide-react";
+import { Landmark, ShieldCheck, Zap, Activity, Bolt, Play, History, TrendingUp, BarChart3, Loader2, Settings2, BarChart } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { StrategyBuilder } from "./StrategyBuilder";
+import { BacktestView } from "./BacktestView";
 
 export function Config() {
-  const [isBacktesting, setIsBacktesting] = useState(false);
+  const [showBacktest, setShowBacktest] = useState(false);
   const [showBuilder, setShowBuilder] = useState(false);
-  const [backtestResult, setBacktestResult] = useState<{
-    profit: string;
-    winRate: string;
-    drawdown: string;
-    trades: number;
-  } | null>(null);
 
   // Bot Parameters State
   const [lotSize, setLotSize] = useState(0.10);
@@ -19,27 +14,14 @@ export function Config() {
   const [stopLoss, setStopLoss] = useState(50);
   const [takeProfit, setTakeProfit] = useState(150);
 
-  const runBacktest = () => {
-    setIsBacktesting(true);
-    setBacktestResult(null);
-    
-    // Mock simulation delay
-    setTimeout(() => {
-      setIsBacktesting(false);
-      setBacktestResult({
-        profit: "+$2,450.12",
-        winRate: "64.2%",
-        drawdown: "4.8%",
-        trades: 124
-      });
-    }, 3000);
-  };
-
   return (
     <div className="space-y-10">
       <AnimatePresence>
         {showBuilder && (
           <StrategyBuilder onClose={() => setShowBuilder(false)} />
+        )}
+        {showBacktest && (
+          <BacktestView onClose={() => setShowBacktest(false)} />
         )}
       </AnimatePresence>
 
@@ -108,86 +90,24 @@ export function Config() {
           </div>
 
           {/* Backtesting Section */}
-          <div className="bg-surface-container-low p-6 rounded-lg border border-outline-variant/10">
-            <h2 className="font-headline text-lg font-bold mb-6 flex items-center gap-2">
-              <History className="w-4 h-4 text-primary" />
-              Strategy Backtesting
-            </h2>
-            <div className="space-y-5">
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold ml-1">Strategy</label>
-                <select className="w-full bg-surface-container-highest border-b border-outline-variant/20 focus:border-primary transition-colors px-4 py-3 text-sm font-medium outline-none appearance-none">
-                  <option>Gold Scalper V2</option>
-                  <option>EUR/USD Trend Follower</option>
-                  <option>Volatility Arbitrage</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold ml-1">Start Date</label>
-                  <input type="date" className="w-full bg-surface-container-highest border-b border-outline-variant/20 focus:border-primary transition-colors px-4 py-3 text-xs font-medium outline-none" defaultValue="2024-01-01" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold ml-1">End Date</label>
-                  <input type="date" className="w-full bg-surface-container-highest border-b border-outline-variant/20 focus:border-primary transition-colors px-4 py-3 text-xs font-medium outline-none" defaultValue="2024-03-28" />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold ml-1">Initial Capital</label>
-                <div className="relative">
-                  <input type="text" className="w-full bg-surface-container-highest border-b border-outline-variant/20 focus:border-primary transition-colors px-4 py-3 text-sm font-bold outline-none tnum" defaultValue="10000" />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-on-surface-variant">USD</span>
-                </div>
-              </div>
-              
-              <button 
-                onClick={runBacktest}
-                disabled={isBacktesting}
-                className="w-full py-3 bg-primary text-on-primary text-xs font-bold uppercase tracking-widest rounded-sm hover:bg-primary/90 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isBacktesting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Simulating...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 fill-current" />
-                    Run Backtest
-                  </>
-                )}
-              </button>
-
-              <AnimatePresence>
-                {backtestResult && (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="pt-4 border-t border-outline-variant/10 space-y-4"
-                  >
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-3 bg-surface-container-highest/50 rounded">
-                        <p className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Net Profit</p>
-                        <p className="text-sm font-bold text-secondary-container tnum">{backtestResult.profit}</p>
-                      </div>
-                      <div className="p-3 bg-surface-container-highest/50 rounded">
-                        <p className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Win Rate</p>
-                        <p className="text-sm font-bold text-on-surface tnum">{backtestResult.winRate}</p>
-                      </div>
-                      <div className="p-3 bg-surface-container-highest/50 rounded">
-                        <p className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Max Drawdown</p>
-                        <p className="text-sm font-bold text-tertiary-container tnum">{backtestResult.drawdown}</p>
-                      </div>
-                      <div className="p-3 bg-surface-container-highest/50 rounded">
-                        <p className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Total Trades</p>
-                        <p className="text-sm font-bold text-on-surface tnum">{backtestResult.trades}</p>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+          <div className="bg-surface-container-low p-6 rounded-lg border border-outline-variant/10 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+              <BarChart className="w-16 h-16" />
             </div>
+            <h2 className="font-headline text-lg font-bold mb-4 flex items-center gap-2">
+              <History className="w-4 h-4 text-primary" />
+              Advanced Backtesting
+            </h2>
+            <p className="text-[11px] text-on-surface-variant mb-6 leading-relaxed">
+              Launch the Neural Backtesting engine to audit performance against historical market nodes with complex growth analytics.
+            </p>
+            <button 
+              onClick={() => setShowBacktest(true)}
+              className="w-full py-3 bg-primary text-on-primary text-[10px] font-bold uppercase tracking-widest rounded-sm hover:bg-primary/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+            >
+              <BarChart3 className="w-4 h-4" />
+              Launch Backtest Engine
+            </button>
           </div>
         </section>
 
