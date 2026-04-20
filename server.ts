@@ -193,6 +193,70 @@ async function startServer() {
     }
   });
 
+  app.get("/api/intermarket", async (req, res) => {
+    try {
+      const fredKey = process.env.FRED_API_KEY || process.env.VITE_FRED_API_KEY;
+      const avKey = process.env.ALPHA_VANTAGE_API_KEY || process.env.VITE_ALPHA_VANTAGE_API_KEY;
+      
+      const results: any = {};
+
+      if (fredKey) {
+        // 10Y Treasury Yield
+        const fredRes = await fetch(`https://api.stlouisfed.org/fred/series/observations?series_id=DGS10&limit=1&sort_order=desc&file_type=json&api_key=${fredKey}`);
+        if (fredRes.ok) {
+          const data = await fredRes.json();
+          results.yield10Y = data.observations[0]?.value;
+        }
+      }
+
+      if (avKey) {
+        // US Dollar Index (DXY) - Using USD/EUR as proxy or specific DXY if available
+        const avRes = await fetch(`https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=USD&to_currency=EUR&apikey=${avKey}`);
+        if (avRes.ok) {
+          const data = await avRes.json();
+          results.dxy = data["Realtime Currency Exchange Rate"]?.["5. Exchange Rate"];
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Intermarket API error:", error);
+      res.status(500).json({ error: "Intermarket data fetch failed" });
+    }
+  });
+
+  app.get("/api/cot", async (req, res) => {
+    try {
+      // CFTC Socrata API - Traders in Financial Futures (Historical/Current)
+      // Filter for Gold (XAU) - usually 'GOLD - COMMODITY EXCHANGE INC.'
+      const response = await fetch("https://public.cftc.gov/resource/66gz-6m6d.json?$limit=1&$order=report_date_as_yyyy_mm_dd%20DESC&market_and_exchange_names=GOLD%20-%20COMMODITY%20EXCHANGE%20INC.");
+      
+      if (!response.ok) throw new Error("CFTC fetch failed");
+      
+      const data = await response.json();
+      const latest = data[0];
+      
+      if (!latest) return res.json({ error: "No COT data found" });
+
+      res.json({
+        date: latest.report_date_as_yyyy_mm_dd.split('T')[0],
+        commercials: {
+          long: parseFloat(latest.comm_positions_long_all) || 0,
+          short: parseFloat(latest.comm_positions_short_all) || 0,
+          net: (parseFloat(latest.comm_positions_long_all) - parseFloat(latest.comm_positions_short_all)) || 0
+        },
+        nonCommercials: {
+          long: parseFloat(latest.noncomm_positions_long_all) || 0,
+          short: parseFloat(latest.noncomm_positions_short_all) || 0,
+          net: (parseFloat(latest.noncomm_positions_long_all) - parseFloat(latest.noncomm_positions_short_all)) || 0
+        }
+      });
+    } catch (error) {
+      console.error("COT API error:", error);
+      res.status(500).json({ error: "COT data fetch failed" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

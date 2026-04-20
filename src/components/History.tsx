@@ -1,18 +1,37 @@
-import { TrendingUp, TrendingDown, ChevronDown, DollarSign, Bitcoin, Activity, BarChart3 } from "lucide-react";
+import { TrendingUp, TrendingDown, ChevronDown, DollarSign, Bitcoin, Activity, BarChart3, X } from "lucide-react";
 
-export function History() {
-  const trades = [
+interface HistoryProps {
+  filterAsset?: string | null;
+  onClearFilter?: () => void;
+}
+
+export function History({ filterAsset, onClearFilter }: HistoryProps) {
+  const allTrades = [
     { id: "XAU/USD", type: "BUY", entry: "2024.15", exit: "2038.45", profit: "+$120.50", time: "14:32:01", trend: "up" },
     { id: "BTC/USDT", type: "SELL", entry: "64,210.00", exit: "64,285.50", profit: "-$45.20", time: "12:15:44", trend: "down" },
     { id: "EUR/USD", type: "BUY", entry: "1.0842", exit: "1.0910", profit: "+$312.80", time: "09:04:12", trend: "up" },
     { id: "NVDA", type: "BUY", entry: "842.10", exit: "855.30", profit: "+$94.10", time: "08:45:33", trend: "up" },
   ];
 
+  const trades = filterAsset 
+    ? allTrades.filter(t => t.id === filterAsset)
+    : allTrades;
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <h2 className="text-3xl font-extrabold font-headline tracking-tight text-on-surface mb-2">Trade History</h2>
+          <div className="flex items-center gap-3 mb-2">
+            <h2 className="text-3xl font-extrabold font-headline tracking-tight text-on-surface">Trade History</h2>
+            {filterAsset && (
+              <div className="flex items-center gap-2 bg-primary/10 px-3 py-1 rounded-full border border-primary/20">
+                <span className="text-[10px] font-black text-primary uppercase tracking-widest">{filterAsset}</span>
+                <button onClick={onClearFilter} className="text-primary hover:text-primary/70">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+          </div>
           <p className="text-on-surface-variant text-sm">Verified audit of autonomous execution cycles.</p>
         </div>
         <div className="flex bg-surface-container-low p-1 rounded-sm border border-outline-variant/10 self-start">

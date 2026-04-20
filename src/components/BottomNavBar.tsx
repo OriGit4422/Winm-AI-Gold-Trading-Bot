@@ -1,4 +1,4 @@
-import { LayoutDashboard, Settings } from "lucide-react";
+import { LayoutDashboard, Settings, History } from "lucide-react";
 import { motion } from "motion/react";
 
 interface BottomNavBarProps {
@@ -9,6 +9,7 @@ interface BottomNavBarProps {
 export function BottomNavBar({ activeTab, setActiveTab }: BottomNavBarProps) {
   const tabs = [
     { id: "terminal", label: "Terminal", icon: LayoutDashboard },
+    { id: "history", label: "History", icon: History },
     { id: "config", label: "Settings", icon: Settings },
   ];
 

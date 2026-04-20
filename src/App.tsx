@@ -8,12 +8,14 @@ import { TopAppBar } from "./components/TopAppBar";
 import { BottomNavBar } from "./components/BottomNavBar";
 import { Dashboard } from "./components/Dashboard";
 import { Config } from "./components/Config";
+import { History } from "./components/History";
 import { AssetDetailView } from "./components/AssetDetailView";
 import { motion, AnimatePresence } from "motion/react";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("terminal");
   const [selectedAssetDetail, setSelectedAssetDetail] = useState<string | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<string | null>(null);
 
   const renderScreen = () => {
     switch (activeTab) {
@@ -21,6 +23,8 @@ export default function App() {
         return <Dashboard onSelectAsset={setSelectedAssetDetail} />;
       case "config":
         return <Config />;
+      case "history":
+        return <History filterAsset={historyFilter} onClearFilter={() => setHistoryFilter(null)} />;
       default:
         return <Dashboard onSelectAsset={setSelectedAssetDetail} />;
     }
@@ -30,6 +34,7 @@ export default function App() {
     <div className="min-h-screen bg-surface selection:bg-primary/30">
       <TopAppBar onSearchSelect={(id) => {
         if (id === "config") setActiveTab("config");
+        else if (id === "history") setActiveTab("history");
         else setSelectedAssetDetail(id);
       }} />
       
@@ -52,6 +57,11 @@ export default function App() {
           <AssetDetailView 
             assetId={selectedAssetDetail} 
             onClose={() => setSelectedAssetDetail(null)} 
+            onNavigateToHistory={(assetId) => {
+              setHistoryFilter(assetId);
+              setActiveTab("history");
+              setSelectedAssetDetail(null);
+            }}
           />
         )}
       </AnimatePresence>
