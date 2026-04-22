@@ -18,6 +18,7 @@ import {
   Search,
   Target,
   Settings,
+  Sparkles,
   Eye,
   EyeOff,
   Layers,
@@ -26,7 +27,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useAssetHistory, useMarketData, Timeframe, useCOTData, useOrderFlow, useIntermarketData, FootprintCandle } from "../services/marketService";
-import { getSentiment, Sentiment } from "../services/geminiService";
+import { getSentiment, getDeepMarketAnalysis, Sentiment } from "../services/geminiService";
 import { NexusSMCChart } from "./NexusSMCChart";
 import { FolderHeart, Thermometer, Radio, Timer, Binary, Landmark } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid } from "recharts";
@@ -132,9 +133,9 @@ interface AssetDetailViewProps {
 export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: AssetDetailViewProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>("1m");
   const [comparisonAssetId, setComparisonAssetId] = useState<string | null>(null);
-  const [orderSize, setOrderSize] = useState<number>(0.1);
+  const [orderSize, setOrderSize] = useState<number>(0.01);
   const [leverage, setLeverage] = useState<number>(10);
-  const [riskCapital, setRiskCapital] = useState<number>(10000);
+  const [riskCapital, setRiskCapital] = useState<number>(500);
   const [riskPercent, setRiskPercent] = useState<number>(1);
   const [tpMode, setTpMode] = useState<'pips' | 'pct' | 'target'>('pips');
   const [slMode, setSlMode] = useState<'pips' | 'pct' | 'target'>('pips');
@@ -200,19 +201,21 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const zoomSpeed = 0.05;
-    const delta = e.deltaY > 0 ? zoomSpeed : -zoomSpeed;
+    const zoomSpeed = 0.001;
+    const delta = e.deltaY * zoomSpeed;
     
     setZoomRange(prev => {
       const range = prev.end - prev.start;
-      const newRange = Math.max(5, Math.min(100, range * (1 + delta))); // Relaxed min zoom to 5%
+      const newRange = Math.max(2, Math.min(100, range * (1 + delta))); // Allowing deeper zoom to 2%
       
-      // Calculate mouse position relative to chart to zoom towards cursor? 
-      // For now, let's keep centered.
-      const center = (prev.start + prev.end) / 2;
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const mouseRelativeX = offsetX / rect.width;
       
-      let nextStart = center - newRange / 2;
-      let nextEnd = center + newRange / 2;
+      const mouseDataPoint = prev.start + mouseRelativeX * range;
+      
+      let nextStart = mouseDataPoint - mouseRelativeX * newRange;
+      let nextEnd = mouseDataPoint + (1 - mouseRelativeX) * newRange;
       
       if (nextStart < 0) {
         nextEnd -= nextStart;
@@ -227,21 +230,20 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
     });
   };
 
-  const handleMouseDown = () => setIsPanning(true);
-  const handleMouseUp = () => setIsPanning(false);
-
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isPanning) return;
     
-    // movementX is the change in cursor position in pixels
-    // We need to convert this to % of the total dataset
-    const panSpeed = 0.15; // Adjusted sensitivity
-    const delta = e.movementX * panSpeed;
+    const panSpeed = 0.5; // High precision panning
+    const deltaX = e.movementX;
     
     setZoomRange(prev => {
       const range = prev.end - prev.start;
-      let nextStart = prev.start - (delta / 100) * range;
-      let nextEnd = prev.end - (delta / 100) * range;
+      // Convert pixel delta to percentage of visible range
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const percentageDelta = (deltaX / rect.width) * range * panSpeed;
+      
+      let nextStart = prev.start - percentageDelta;
+      let nextEnd = prev.end - percentageDelta;
       
       if (nextStart < 0) {
         nextEnd -= nextStart;
@@ -279,16 +281,18 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
     }, 1500);
   };
 
-  useEffect(() => {
-    async function fetchSentiment() {
-      if (!assetId) return;
-      setLoadingSentiment(true);
+  const fetchSentimentManual = async () => {
+    if (!assetId || loadingSentiment) return;
+    setLoadingSentiment(true);
+    try {
       const res = await getSentiment(`${assetId} market status`, "Detailed analysis of current price action and institutional flow.");
       setSentiment(res);
+    } catch (e) {
+      console.error("Sentiment error:", e);
+    } finally {
       setLoadingSentiment(false);
     }
-    fetchSentiment();
-  }, [assetId]);
+  };
 
   const stats = useMemo(() => {
     if (history.length < 2) return null;
@@ -345,54 +349,127 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
   }), [assetId]);
 
   const smcMarkers = useMemo(() => {
-    if (visibleHistory.length < 10) return [];
-    // Mocking BOS/CHoCH based on local highs/lows in visible range
+    if (visibleHistory.length < 20) return [];
     const markers: { type: 'BOS' | 'CHoCH'; price: number; time: string; side: 'bull' | 'bear' }[] = [];
-    const step = Math.floor(visibleHistory.length / 4);
-    for (let i = step; i < visibleHistory.length; i += step) {
-      markers.push({
-        type: Math.random() > 0.5 ? 'BOS' : 'CHoCH',
-        price: visibleHistory[i].price,
-        time: visibleHistory[i].time,
-        side: visibleHistory[i].price > visibleHistory[i-1].price ? 'bull' : 'bear'
-      });
+    
+    // Simple Fractal/Swing High/Low detection and Breakout detection
+    let lastHigh = visibleHistory[0].price;
+    let lastLow = visibleHistory[0].price;
+    let trend: 'bull' | 'bear' = visibleHistory[1].price > visibleHistory[0].price ? 'bull' : 'bear';
+
+    for (let i = 2; i < visibleHistory.length; i++) {
+      const curr = visibleHistory[i].price;
+      const prev = visibleHistory[i-1].price;
+      
+      if (trend === 'bull' && curr > lastHigh) {
+        markers.push({ type: 'BOS', price: lastHigh, time: visibleHistory[i].time, side: 'bull' });
+        lastHigh = curr;
+      } else if (trend === 'bull' && curr < lastLow * 0.995) { // Simple threshold for CHoCH
+        markers.push({ type: 'CHoCH', price: lastLow, time: visibleHistory[i].time, side: 'bear' });
+        trend = 'bear';
+        lastLow = curr;
+      } else if (trend === 'bear' && curr < lastLow) {
+        markers.push({ type: 'BOS', price: lastLow, time: visibleHistory[i].time, side: 'bear' });
+        lastLow = curr;
+      } else if (trend === 'bear' && curr > lastHigh * 1.005) {
+        markers.push({ type: 'CHoCH', price: lastHigh, time: visibleHistory[i].time, side: 'bull' });
+        trend = 'bull';
+        lastHigh = curr;
+      }
+
+      if (curr > lastHigh) lastHigh = curr;
+      if (curr < lastLow) lastLow = curr;
     }
-    return markers;
+    return markers.slice(-8); // Limit markers for clarity
   }, [visibleHistory]);
 
   const fvgZones = useMemo(() => {
     if (visibleHistory.length < 5) return [];
-    // Mocking Fair Value Gaps
-    return visibleHistory.slice(10, 15).map((h, i) => ({
-      top: h.price * 1.005,
-      bottom: h.price * 0.995,
-      timeStart: visibleHistory[10].time,
-      timeEnd: visibleHistory[25]?.time || visibleHistory[visibleHistory.length-1].time
-    }));
+    const zones: { top: number; bottom: number; timeStart: string; timeEnd: string; type: 'bull' | 'bear' }[] = [];
+    
+    // FVG detection: Gap between 1st candle high/low and 3rd candle low/high
+    // Since our history is just {time, price}, we'll simulate candle ranges
+    for (let i = 2; i < visibleHistory.length; i++) {
+        const p1 = visibleHistory[i-2].price;
+        const p2 = visibleHistory[i-1].price;
+        const p3 = visibleHistory[i].price;
+
+        const h1 = p1 * 1.001;
+        const l1 = p1 * 0.999;
+        const h3 = p3 * 1.001;
+        const l3 = p3 * 0.999;
+
+        if (l3 > h1) { // Bullish FVG
+            zones.push({
+                top: l3,
+                bottom: h1,
+                timeStart: visibleHistory[i-1].time,
+                timeEnd: visibleHistory[visibleHistory.length-1].time,
+                type: 'bull'
+            });
+        } else if (h3 < l1) { // Bearish FVG
+            zones.push({
+                top: l1,
+                bottom: h3,
+                timeStart: visibleHistory[i-1].time,
+                timeEnd: visibleHistory[visibleHistory.length-1].time,
+                type: 'bear'
+            });
+        }
+    }
+    return zones.slice(-4); // Only show recent ones
   }, [visibleHistory]);
 
   const liquidityPools = useMemo(() => {
-    if (!stats) return [];
-    return [
-      { price: stats.high * 1.01, type: 'buy-side', strength: 0.8 },
-      { price: stats.low * 0.99, type: 'sell-side', strength: 0.6 }
-    ];
-  }, [stats]);
+    if (!stats || visibleHistory.length < 10) return [];
+    // Identify major pivot points
+    const pools: { price: number; type: 'buy-side' | 'sell-side'; strength: number }[] = [];
+    
+    const highs = visibleHistory.map(h => h.price);
+    const maxVal = Math.max(...highs);
+    const minVal = Math.min(...highs);
+
+    pools.push({ price: maxVal * 1.001, type: 'buy-side', strength: 0.9 });
+    pools.push({ price: minVal * 0.999, type: 'sell-side', strength: 0.85 });
+
+    // Add some intermediate clusters
+    const mid = (maxVal + minVal) / 2;
+    pools.push({ price: mid * 1.02, type: 'buy-side', strength: 0.4 });
+    pools.push({ price: mid * 0.98, type: 'sell-side', strength: 0.4 });
+
+    return pools;
+  }, [stats, visibleHistory]);
 
   const volumeProfile = useMemo(() => {
     if (visibleHistory.length === 0) return [];
-    // Mocking VPVR
-    const bins = 20;
-    const min = Math.min(...visibleHistory.map(h => h.price));
-    const max = Math.max(...visibleHistory.map(h => h.price));
+    const bins = 24;
+    const prices = visibleHistory.map(h => h.price);
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
     const range = max - min;
     const step = range / bins;
     
-    return Array.from({ length: bins }).map((_, i) => ({
-      price: min + (i * step),
-      volume: Math.random() * 100,
-      isPOC: i === 12
-    }));
+    const profile = Array.from({ length: bins }).map((_, i) => {
+        const binMin = min + (i * step);
+        const binMax = binMin + step;
+        const vol = visibleHistory.filter(h => h.price >= binMin && h.price < binMax).length;
+        return { 
+            low: binMin, 
+            high: binMax, 
+            vol, 
+            isPOC: false,
+            weight: 0 
+        };
+    });
+
+    const maxVol = Math.max(...profile.map(p => p.vol));
+    if (maxVol > 0) {
+        const pocIndex = profile.findIndex(p => p.vol === maxVol);
+        if (pocIndex !== -1) profile[pocIndex].isPOC = true;
+        profile.forEach(p => p.weight = (p.vol / maxVol) * 100);
+    }
+
+    return profile;
   }, [visibleHistory]);
 
   const smcZones = useMemo(() => {
@@ -956,17 +1033,20 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                     
                     <div className="flex flex-col">
                       <div className="flex items-center gap-1.5 mb-1">
-                        <Thermometer className={`w-2.5 h-2.5 ${volatility > 15 ? 'text-error animate-pulse' : 'text-on-surface/30'}`} />
-                        <span className="text-[7px] font-black text-on-surface/30 uppercase tracking-[0.2em]">Neural Vol (BP)</span>
+                        <Thermometer className={`w-3.5 h-3.5 ${volatility > 15 ? 'text-error animate-pulse' : 'text-primary animate-pulse'}`} />
+                        <span className="text-[8px] font-black text-on-surface/60 uppercase tracking-[0.2em]">Neural Intelligence Volatility</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+                      <div className="flex items-center gap-3">
+                        <div className="w-32 h-2 bg-surface-container-highest rounded-full overflow-hidden border border-outline-variant/10 shadow-inner">
                            <motion.div 
                              animate={{ width: `${Math.min(100, volatility * 5)}%`, backgroundColor: volatility > 15 ? 'var(--color-error)' : 'var(--color-primary)' }}
-                             className="h-full" 
+                             className="h-full shadow-[0_0_10px_rgba(var(--color-primary-rgb),0.5)]" 
                            />
                         </div>
-                        <span className={`text-[10px] font-mono font-black tabular-nums ${volatility > 15 ? 'text-error' : 'text-primary'}`}>{volatility.toFixed(1)}</span>
+                        <div className="flex items-baseline gap-1">
+                          <span className={`text-[14px] font-mono font-black tabular-nums ${volatility > 15 ? 'text-error' : 'text-primary'}`}>{volatility.toFixed(2)}</span>
+                          <span className="text-[8px] font-black text-on-surface/30 lowercase">bp</span>
+                        </div>
                       </div>
                     </div>
 
@@ -985,7 +1065,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                       <div key={i} className="flex-1 flex items-center">
                         <div 
                           className={`h-[1px] transition-all duration-500 ${bin.isPOC ? 'bg-primary shadow-[0_0_8px_var(--color-primary)] opacity-100' : 'bg-on-surface/10'}`}
-                          style={{ width: `${bin.volume}%` }}
+                          style={{ width: `${bin.weight}%` }}
                         />
                         {bin.isPOC && <span className="text-[6px] font-black text-primary ml-1 uppercase">POC</span>}
                       </div>
@@ -1008,6 +1088,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                   orderBook={orderBook}
                   premiumDiscount={premiumDiscount}
                   zoomRange={zoomRange}
+                  volumeProfile={volumeProfile}
                   onZoomRangeChange={setZoomRange}
                   onHoverFVG={(id) => setHoveredEntityId(id)}
                   onHoverLiquidity={(id) => setHoveredEntityId(id)}
@@ -1105,55 +1186,68 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
               </div>
             )}
 
-              {/* Institutional Pulse (Intermarket Analysis) */}
+              {/* Institutional Pulse (COT & Intermarket Analysis) */}
               <div className="bg-surface-container-lowest/30 p-6 rounded-2xl border border-outline-variant/10 backdrop-blur-md">
                  <div className="flex items-center justify-between mb-6">
                     <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
                        <Landmark className="w-4 h-4" />
-                       Institutional Pulse · Intermarket Indices
+                       Institutional Pulse · COT & Intermarket
                     </h4>
                     <div className="flex items-center gap-2">
-                       <div className={`w-2 h-2 rounded-full ${loadingIntermarket ? 'bg-on-surface/20 animate-pulse' : 'bg-secondary-container shadow-[0_0_8px_var(--color-secondary-container)]'}`} />
-                       <span className="text-[8px] font-bold text-on-surface/40 uppercase">FRED & Alpha Vantage Sync</span>
+                       <div className={`w-2 h-2 rounded-full ${loadingCOT || loadingIntermarket ? 'bg-on-surface/20 animate-pulse' : 'bg-secondary-container shadow-[0_0_8px_var(--color-secondary-container)]'}`} />
+                       <span className="text-[8px] font-bold text-on-surface/40 uppercase">CFTC & Alpha Vantage Sync</span>
                     </div>
                  </div>
                  
-                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                 <div className="grid grid-cols-2 lg:grid-cols-5 gap-6">
                     <div className="space-y-1">
-                       <span className="text-[9px] font-black text-on-surface/30 uppercase tracking-widest block">US 10Y Yield</span>
+                       <span className="text-[9px] font-black text-on-surface/30 uppercase tracking-widest block">Non-Comm Net</span>
                        <div className="flex items-baseline gap-2">
-                          <span className="text-xl font-mono font-black text-on-surface">
-                            {loadingIntermarket ? '---' : intermarket?.yield10Y ? `${intermarket.yield10Y}%` : '4.58%'}
+                          <span className={`text-xl font-mono font-black ${cotData?.nonCommercials.net && cotData.nonCommercials.net > 0 ? 'text-secondary-container' : 'text-tertiary-container'}`}>
+                            {loadingCOT ? '---' : cotData?.nonCommercials.net.toLocaleString() || 'N/A'}
                           </span>
-                          <TrendingUp className="w-3 h-3 text-secondary-container" />
+                          {cotData?.nonCommercials.net && cotData.nonCommercials.net > 0 ? <TrendingUp className="w-3 h-3 text-secondary-container" /> : <TrendingDown className="w-3 h-3 text-tertiary-container" />}
                        </div>
-                       <p className="text-[8px] text-on-surface/40 leading-tight">Risk-free rate benchmark for parity pricing.</p>
+                       <p className="text-[8px] text-on-surface/40 leading-tight">Institutional directional bias (Speculative Net).</p>
+                    </div>
+
+                    <div className="space-y-1">
+                       <span className="text-[9px] font-black text-on-surface/30 uppercase tracking-widest block">COT Sentiment</span>
+                       <div className="flex items-center gap-2">
+                          <span className={`text-sm font-black uppercase px-2 py-0.5 rounded ${cotData?.sentiment === 'bullish' ? 'bg-secondary-container/20 text-secondary-container' : 'bg-tertiary-container/20 text-tertiary-container'}`}>
+                            {loadingCOT ? '---' : cotData?.sentiment || 'NEUTRAL'}
+                          </span>
+                       </div>
+                       <p className="text-[8px] text-on-surface/40 leading-tight mt-1">Smart Money commitment alignment.</p>
                     </div>
                     
+                    <div className="space-y-1 col-span-1">
+                       <span className="text-[9px] font-black text-on-surface/30 uppercase tracking-widest block mb-2">Institutional Trend</span>
+                       <div className="h-10 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                             <AreaChart data={cotData?.history || []}>
+                                <Area 
+                                  type="monotone" 
+                                  dataKey="nonCommercialsNet" 
+                                  stroke="var(--color-primary)" 
+                                  fill="var(--color-primary)" 
+                                  fillOpacity={0.1} 
+                                  strokeWidth={1}
+                                />
+                             </AreaChart>
+                          </ResponsiveContainer>
+                       </div>
+                    </div>
+
                     <div className="space-y-1">
-                       <span className="text-[9px] font-black text-on-surface/30 uppercase tracking-widest block">US Dollar Index (DXY)</span>
+                       <span className="text-[9px] font-black text-on-surface/30 uppercase tracking-widest block">US Dollar (DXY)</span>
                        <div className="flex items-baseline gap-2">
                           <span className="text-xl font-mono font-black text-on-surface">
                             {loadingIntermarket ? '---' : intermarket?.dxy ? intermarket.dxy : '106.12'}
                           </span>
                           <TrendingDown className="w-3 h-3 text-tertiary-container" />
                        </div>
-                       <p className="text-[8px] text-on-surface/40 leading-tight">Greenback strength inverse correlation check.</p>
-                    </div>
-                    
-                    <div className="space-y-1">
-                       <span className="text-[9px] font-black text-on-surface/30 uppercase tracking-widest block">Correlation Matrix</span>
-                       <div className="flex items-center gap-4 py-1">
-                          <div className="flex flex-col">
-                             <span className="text-[7px] font-bold text-secondary-container uppercase">XAU/DXY</span>
-                             <span className="text-[10px] font-mono font-black">-0.84</span>
-                          </div>
-                          <div className="flex flex-col">
-                             <span className="text-[7px] font-bold text-tertiary-container uppercase">XAU/10Y</span>
-                             <span className="text-[10px] font-mono font-black">+0.12</span>
-                          </div>
-                       </div>
-                       <p className="text-[8px] text-on-surface/40 leading-tight">Statistical alignment with current price action.</p>
+                       <p className="text-[8px] text-on-surface/40 leading-tight">Inverse correlation factor (Real-time).</p>
                     </div>
                     
                     <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl flex items-center gap-3">
@@ -1162,7 +1256,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                        </div>
                        <div>
                           <span className="text-[8px] font-black text-primary uppercase block">Signal Alpha</span>
-                          <span className="text-[10px] font-bold text-on-surface uppercase">DXY/GOLD Divergence Detected</span>
+                          <span className="text-[10px] font-bold text-on-surface uppercase">COT/DXY Convergence</span>
                        </div>
                     </div>
                  </div>
@@ -1209,9 +1303,19 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                          sentiment === 'negative' ? "Aggressive distribution phase initiated by major stakeholders. Caution advised." :
                          "Market parity reached. Waiting for macro-economic catalysts to break current consolidation ranges."}
                       </p>
-                      <div className="flex items-center gap-2 text-[10px] font-bold text-primary uppercase">
-                        <BrainCircuit className="w-3 h-3" />
-                        Nexus Intelligence Analysis {macroContext !== 'Neutral' ? `· Adjusted for ${macroContext}` : ''}
+                      <div className="flex items-center gap-4 text-[10px] font-bold text-primary uppercase">
+                        <button 
+                          onClick={fetchSentimentManual}
+                          disabled={loadingSentiment}
+                          className="flex items-center gap-2 px-2 py-1 bg-primary/10 hover:bg-primary/20 rounded transition-colors disabled:opacity-50"
+                        >
+                          {loadingSentiment ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                          {sentiment ? "Update Sentiment" : "Compute Sentiment"}
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <BrainCircuit className="w-3 h-3" />
+                          Nexus Intelligence Analysis {macroContext !== 'Neutral' ? `· Adjusted for ${macroContext}` : ''}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1258,8 +1362,86 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                   </div>
                 </div>
 
-                <div className="bg-surface-container-lowest/30 p-6 rounded-xl border border-outline-variant/10">
-                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-6">Volatility Breakdown</h4>
+                  <div className="bg-surface-container-lowest/30 p-6 rounded-xl border border-outline-variant/10">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-primary" />
+                        <h4 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">Volatility Matrix</h4>
+                        {volatility > 15 && <span className="px-1.5 py-0.5 bg-error/10 text-error text-[8px] font-black rounded-sm animate-pulse">HIGH REGIME</span>}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 rounded-lg bg-surface-container-high/40 border border-outline-variant/10">
+                        <p className="text-[8px] font-black text-on-surface/30 uppercase mb-2">Neural Dispersion</p>
+                        <p className={`text-xl font-mono font-black ${volatility > 12 ? 'text-tertiary-container' : 'text-primary'}`}>{volScore.toFixed(2)}%</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-surface-container-high/40 border border-outline-variant/10">
+                        <p className="text-[8px] font-black text-on-surface/30 uppercase mb-2">Market Intensity</p>
+                        <p className="text-xl font-mono font-black text-on-surface">{(volatility * 0.8).toFixed(1)}<span className="text-[10px] ml-1">σ</span></p>
+                      </div>
+                      <div className="col-span-2 space-y-2">
+                        <div className="flex justify-between items-center text-[9px] font-bold uppercase text-on-surface/40">
+                          <span>Real-time Risk Regime</span>
+                          <span>{volatility > 15 ? 'Aggressive' : 'Stable'}</span>
+                        </div>
+                        <div className="w-full h-1 bg-surface-container-highest rounded-full overflow-hidden">
+                           <motion.div 
+                              animate={{ width: `${Math.min(100, volatility * 6)}%`, backgroundColor: volatility > 15 ? 'var(--color-error)' : 'var(--color-secondary-container)' }}
+                              className="h-full"
+                           />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-surface-container-lowest/30 p-6 rounded-xl border border-outline-variant/10">
+                    <div className="flex items-center justify-between mb-6">
+                      <h4 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">AI Market Synthesis</h4>
+                      <button 
+                        onClick={generateAIThesis}
+                        disabled={isGeneratingThesis || thesisCooldown > 0}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-primary/10 border-primary/20 text-primary hover:bg-primary/20 transition-all disabled:opacity-50"
+                      >
+                        {isGeneratingThesis ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BrainCircuit className="w-3.5 h-3.5" />}
+                        <span className="text-[9px] font-black uppercase tracking-widest">
+                          {isGeneratingThesis ? "Synthesizing..." : thesisCooldown > 0 ? `Cooldown (${thesisCooldown}s)` : "Deep Analysis"}
+                        </span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-4">
+                      {isGeneratingThesis ? (
+                        <div className="py-12 flex flex-col items-center justify-center gap-3">
+                          <motion.div
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                            className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full"
+                          />
+                          <p className="text-[10px] font-bold text-primary uppercase animate-pulse">Computing institutional imbalances...</p>
+                        </div>
+                      ) : aiThesis ? (
+                        <div className="p-4 bg-surface-container-high/30 rounded-xl border border-outline-variant/10 relative overflow-hidden group">
+                           <div className="absolute top-0 right-0 p-2">
+                             <Sparkles className="w-3 h-3 text-primary opacity-40 group-hover:opacity-100 transition-opacity" />
+                           </div>
+                           <p className="text-xs text-on-surface/80 leading-relaxed font-medium">
+                              {aiThesis}
+                           </p>
+                           <div className="mt-4 flex items-center gap-4 text-[9px] font-black uppercase tracking-widest text-on-surface/30">
+                              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3 h-3 text-secondary-container" /> Confidence: 94%</span>
+                              <span className="flex items-center gap-1.5"><Zap className="w-3 h-3 text-primary" /> Alpha: High</span>
+                           </div>
+                        </div>
+                      ) : (
+                        <div className="py-12 text-center">
+                          <p className="text-[10px] font-bold text-on-surface/20 uppercase tracking-[0.2em]">Initiate Deep Analysis for Insights</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-surface-container-lowest/30 p-6 rounded-xl border border-outline-variant/10">
+                    <h4 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-6">Volatility Breakdown</h4>
                   <div className="space-y-4">
                     {[
                       { label: "RSI (14)", val: "62.4", color: "text-secondary-container" },
@@ -1797,13 +1979,28 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                     <span className="text-[10px] font-black uppercase text-on-surface/30">Order Type</span>
                     <span className={`text-sm font-black ${showConfirmModal === 'buy' ? 'text-secondary-container' : 'text-tertiary-container'} uppercase`}>{showConfirmModal} position</span>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-surface-container-low rounded-xl">
-                    <span className="text-[10px] font-black uppercase text-on-surface/30">Lot Size / Lev</span>
-                    <span className="text-sm font-mono font-black text-on-surface">{orderSize.toFixed(4)} @ {leverage}x</span>
+                  <div className="flex justify-between items-center p-3 bg-surface-container-low rounded-xl border-l-2 border-primary/40">
+                    <div className="flex flex-col">
+                       <span className="text-[10px] font-black uppercase text-on-surface/30">Capital committed</span>
+                       <span className="text-sm font-mono font-black text-on-surface">${estimatedMargin.toFixed(2)}</span>
+                    </div>
+                    <div className="text-right">
+                       <span className="text-[9px] font-bold text-on-surface/40 uppercase">at {leverage}x leverage</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center p-3 bg-surface-container-low rounded-xl">
-                    <span className="text-[10px] font-black uppercase text-on-surface/30">Price Depth</span>
-                    <span className="text-sm font-mono font-black text-on-surface">${assetData?.price}</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-surface-container-low rounded-xl">
+                      <span className="text-[9px] font-black uppercase text-secondary-container/60 block mb-1">Est. Profit</span>
+                      <span className="text-sm font-mono font-black text-secondary-container">+${potentialPL.tp.toFixed(2)}</span>
+                    </div>
+                    <div className="p-3 bg-surface-container-low rounded-xl">
+                      <span className="text-[9px] font-black uppercase text-tertiary-container/60 block mb-1">Est. Loss</span>
+                      <span className="text-sm font-mono font-black text-tertiary-container">-${Math.abs(potentialPL.sl).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="p-3 bg-surface-container-low rounded-xl border border-outline-variant/10 flex justify-between items-center">
+                    <span className="text-[9px] font-black uppercase text-on-surface/30">Estimated Slippage</span>
+                    <span className="text-[10px] font-mono font-black text-on-surface">~{(volScore * 0.05).toFixed(3)}%</span>
                   </div>
                 </div>
 

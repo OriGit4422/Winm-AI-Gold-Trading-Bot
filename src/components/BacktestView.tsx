@@ -59,7 +59,7 @@ export function BacktestView({ onClose }: { onClose: () => void }) {
   
   // Config
   const [strategy, setStrategy] = useState('AI SMC/FVG Pattern');
-  const [initialCapital, setInitialCapital] = useState(10000);
+  const [initialCapital, setInitialCapital] = useState(500);
   const [maxTrades, setMaxTrades] = useState(100);
   const [lookback, setLookback] = useState('90D');
 

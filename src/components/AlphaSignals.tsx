@@ -45,9 +45,8 @@ export function AlphaSignals({ marketContext }: AlphaSignalsProps) {
   };
 
   useEffect(() => {
-    if (marketContext && !lastRefreshed) {
-      fetchSignals();
-    }
+    // Automatic fetching disabled to conserve Gemini credits. 
+    // Signals will only load when the user manually clicks "Refresh Signals".
   }, [marketContext]);
 
   return (

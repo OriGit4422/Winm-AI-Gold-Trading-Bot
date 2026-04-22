@@ -531,8 +531,10 @@ export function Alerts() {
                     </div>
                   </>
                 )}
-              </div>
-            </motion.div>
+              </>
+            )}
+          </div>
+        </motion.div>
           </>
         )}
       </AnimatePresence>

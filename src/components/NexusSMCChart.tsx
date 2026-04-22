@@ -17,6 +17,7 @@ interface NexusSMCChartProps {
   liquidityPools: any[];
   killZones: any[];
   smcZones: any[];
+  volumeProfile: any[];
   orderBook?: { bids: [number, number][]; asks: [number, number][] };
   premiumDiscount?: any;
   zoomRange: { start: number; end: number };
@@ -99,6 +100,7 @@ export function NexusSMCChart({
   liquidityPools, 
   killZones,
   smcZones,
+  volumeProfile,
   orderBook,
   premiumDiscount,
   zoomRange,
@@ -120,26 +122,6 @@ export function NexusSMCChart({
     const e = Math.min(history.length, Math.ceil((zoomRange.end / 100) * history.length));
     return history.slice(s, e);
   }, [history, zoomRange]);
-
-  const volumeProfile = useMemo(() => {
-    if (visibleHistory.length === 0 || !showVPVR) return [];
-    const prices = visibleHistory.map(h => h.price);
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    const step = (max - min) / 20;
-    
-    const profile = Array.from({ length: 20 }).map((_, i) => {
-      const low = min + i * step;
-      const high = low + step;
-      const vol = visibleHistory
-        .filter(h => h.price >= low && h.price < high)
-        .length; // Mock volume based on time spend in zone
-      return { low, high, vol };
-    });
-    
-    const maxVol = Math.max(...profile.map(p => p.vol));
-    return profile.map(p => ({ ...p, weight: (p.vol / maxVol) * 100 }));
-  }, [visibleHistory, showVPVR]);
 
   const activeFootprints = useMemo(() => footprints.slice(-15), [footprints]);
 
@@ -174,13 +156,13 @@ export function NexusSMCChart({
           <DepthChart bids={orderBook.bids} asks={orderBook.asks} />
         )}
 
-        {/* VPVR Overlay */}
-        {showVPVR && volumeProfile.length > 0 && (
-          <div className="absolute right-0 top-0 h-full w-24 pointer-events-none flex flex-col-reverse py-[84px] pr-[60px]">
+        {/* VPVR Overlay (Linked to Ops Hub) */}
+        {activeOverlays.includes('volume') && volumeProfile.length > 0 && (
+          <div className="absolute right-0 top-0 h-full w-32 pointer-events-none flex flex-col-reverse py-[60px] pr-[60px] z-10">
              {volumeProfile.map((p, i) => (
-                <div key={i} className="flex-1 flex justify-end items-center">
+                <div key={i} className={`flex-1 flex justify-end items-center ${p.isPOC ? 'z-20' : ''}`}>
                    <div 
-                      className="h-[80%] bg-primary/20 rounded-l-sm border-r border-primary/40" 
+                      className={`h-[90%] rounded-l-sm transition-all duration-700 ${p.isPOC ? 'bg-primary/40 border-y border-l border-primary shadow-[0_0_10px_rgba(var(--color-primary-rgb),0.3)]' : 'bg-primary/10 border-r border-primary/20'}`} 
                       style={{ width: `${p.weight}%` }} 
                    />
                 </div>
@@ -245,14 +227,22 @@ export function NexusSMCChart({
                 key={i} 
                 x1={kz.start} 
                 x2={kz.end} 
-                fill={kz.color.replace('0.05', '0.15')} // Brighter background
+                fill={kz.color.replace('0.05', '0.12')} 
                 stroke={kz.color.replace('0.05', '0.3')}
                 strokeWidth={1}
                 className="cursor-help"
+                label={{ 
+                  position: 'insideTopLeft', 
+                  value: kz.name, 
+                  fill: 'var(--color-on-surface)', 
+                  fontSize: 7, 
+                  fontWeight: '900', 
+                  className: 'uppercase opacity-40 translate-y-4' 
+                }}
               />
             ))}
 
-            {/* FVG Detection Zones with Hover */}
+            {/* FVG Detection Zones with Hover and Refined Visuals */}
             {activeOverlays.includes('fvg') && fvgZones.map((z, i) => {
                const fvgId = `fvg-${i}`;
                const isHovered = hoveredFVG === fvgId;
@@ -263,11 +253,12 @@ export function NexusSMCChart({
                     x2={z.timeEnd}
                     y1={z.bottom}
                     y2={z.top}
-                    fill="var(--color-primary)"
-                    fillOpacity={isHovered ? 0.1 : 0.03}
-                    stroke="var(--color-primary)"
-                    strokeOpacity={isHovered ? 0.6 : 0.1}
-                    strokeDasharray={isHovered ? "0" : "2 2"}
+                    fill={z.type === 'bull' ? 'var(--color-secondary-container)' : 'var(--color-tertiary-container)'}
+                    fillOpacity={isHovered ? 0.25 : 0.08}
+                    stroke={z.type === 'bull' ? 'var(--color-secondary-container)' : 'var(--color-tertiary-container)'}
+                    strokeOpacity={isHovered ? 0.8 : 0.2}
+                    strokeDasharray={isHovered ? "0" : "4 4"}
+                    className="cursor-help transition-all duration-300"
                     onMouseEnter={() => {
                       setHoveredFVG(fvgId);
                       onHoverFVG?.(fvgId);
@@ -280,57 +271,78 @@ export function NexusSMCChart({
                );
             })}
 
-            {/* Liquidity Pools with Pulsating Rotation/Animation on Hover */}
+            {/* Liquidity Pools with Dynamic Interaction and Interactivity */}
             {activeOverlays.includes('liquidity') && liquidityPools.map((p, i) => {
               const poolId = `pool-${i}`;
               const isHovered = hoveredPool === poolId;
-              const isInteracting = !isHovered && visibleHistory.length > 0 && Math.abs(p.price - visibleHistory[visibleHistory.length-1].price) < p.price * 0.005;
+              const isInteracting = !isHovered && visibleHistory.length > 0 && Math.abs(p.price - visibleHistory[visibleHistory.length-1].price) < p.price * 0.002;
               
               return (
                 <ReferenceLine 
-                  key={i}
-                  y={p.price}
-                  stroke={p.type === 'buy-side' ? 'var(--color-secondary-container)' : 'var(--color-tertiary-container)'}
-                  strokeWidth={isHovered ? 3 : (isInteracting ? 2 : 1)}
-                  strokeOpacity={isHovered ? 1 : 0.4}
-                  onMouseEnter={() => {
-                    setHoveredPool(poolId);
-                    onHoverLiquidity?.(poolId);
-                  }}
-                  onMouseLeave={() => {
-                    setHoveredPool(null);
-                    onHoverLiquidity?.(null);
-                  }}
+                    key={i}
+                    y={p.price}
+                    stroke={p.type === 'buy-side' ? 'var(--color-secondary-container)' : 'var(--color-tertiary-container)'}
+                    strokeWidth={isHovered ? 4 : (isInteracting ? 2 : 1)}
+                    strokeOpacity={isHovered ? 1 : (isInteracting ? 0.8 : 0.4)}
+                    className="cursor-pointer transition-all duration-350"
+                    onMouseEnter={() => {
+                        setHoveredPool(poolId);
+                        onHoverLiquidity?.(poolId);
+                    }}
+                    onMouseLeave={() => {
+                        setHoveredPool(null);
+                        onHoverLiquidity?.(null);
+                    }}
                 >
-                   {(isHovered || isInteracting) && (
+                   {isHovered && (
                      <animate 
                        attributeName="stroke-opacity" 
-                       values={isHovered ? "0.6;1;0.6" : "0.2;0.6;0.2"} 
-                       dur={isHovered ? "0.3s" : "1s"} 
+                       values="0.6;1;0.6" 
+                       dur="0.4s" 
                        repeatCount="indefinite" 
                      />
                    )}
-                   {isHovered && <animate attributeName="stroke-width" values="2;5;2" dur="0.4s" repeatCount="indefinite" />}
+                   {isInteracting && (
+                      <animate 
+                        attributeName="stroke-dasharray" 
+                        values="0;4;0" 
+                        dur="1s" 
+                        repeatCount="indefinite" 
+                      />
+                   )}
                 </ReferenceLine>
               );
             })}
 
-            {/* SMC Markers */}
+            {/* SMC Markers (BOS/CHoCH) */}
             {activeOverlays.includes('smc') && smcMarkers.map((m, i) => (
               <ReferenceLine 
                 key={i}
                 x={m.time}
                 stroke={m.side === 'bull' ? 'var(--color-secondary-container)' : 'var(--color-tertiary-container)'}
-                strokeOpacity={0.4}
-                strokeDasharray="3 3"
+                strokeOpacity={0.6}
+                strokeWidth={1.5}
+                strokeDasharray="4 2"
                 label={{
                   position: 'top',
                   value: m.type,
                   fill: m.side === 'bull' ? 'var(--color-secondary-container)' : 'var(--color-tertiary-container)',
-                  fontSize: 8,
-                  fontWeight: 'black'
+                  fontSize: 9,
+                  fontWeight: '900',
+                  className: 'uppercase tracking-tighter'
                 }}
               />
+            ))}
+            
+            {/* Horizontal level lines for SMC pivots */}
+            {activeOverlays.includes('smc') && smcMarkers.map((m, i) => (
+                <ReferenceLine 
+                    key={`level-${i}`}
+                    y={m.price}
+                    stroke={m.side === 'bull' ? 'var(--color-secondary-container)' : 'var(--color-tertiary-container)'}
+                    strokeOpacity={0.2}
+                    strokeWidth={1}
+                />
             ))}
 
             <XAxis dataKey="time" hide />
@@ -365,10 +377,27 @@ export function NexusSMCChart({
                         <div className="mt-2 p-2 bg-primary/10 rounded border border-primary/20 mb-2">
                            <p className="text-[8px] font-black text-primary uppercase mb-1">FVG DETAILS</p>
                            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                              <span className="text-[7px] text-on-surface/40 uppercase">Midpoint:</span>
-                              <span className="text-[8px] font-bold text-on-surface">$2,642.40</span>
-                              <span className="text-[7px] text-on-surface/40 uppercase">Gap Weight:</span>
-                              <span className="text-[8px] font-bold text-secondary-container">High</span>
+                              <span className="text-[7px] text-on-surface/40 uppercase font-bold">Imbalance:</span>
+                              <span className="text-[8px] font-bold text-on-surface">Significant</span>
+                              <span className="text-[7px] text-on-surface/40 uppercase font-bold">Midpoint:</span>
+                              <span className="text-[8px] font-bold text-on-surface">${(Number(payload[0]?.value || 0) * 1.0005).toFixed(2)}</span>
+                           </div>
+                        </div>
+                      )}
+
+                      {/* Liquidity Pool Tooltip */}
+                      {hoveredPool && (
+                        <div className="mt-2 p-2 bg-secondary-container/10 rounded border border-secondary-container/20 mb-2">
+                           <p className="text-[8px] font-black text-secondary-container uppercase mb-1">LIQUIDITY HUB</p>
+                           <div className="flex flex-col gap-1">
+                              <div className="flex justify-between items-center">
+                                 <span className="text-[7px] text-on-surface/40 uppercase font-bold">Type:</span>
+                                 <span className="text-[8px] font-bold text-on-surface uppercase">Institutional Pull</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                 <span className="text-[7px] text-on-surface/40 uppercase font-bold">Resting Vol:</span>
+                                 <span className="text-[8px] font-bold text-secondary-container">High Conviction</span>
+                              </div>
                            </div>
                         </div>
                       )}
