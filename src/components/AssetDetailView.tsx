@@ -29,43 +29,96 @@ import { useAssetHistory, useMarketData, Timeframe, useCOTData, useOrderFlow, us
 import { getSentiment, Sentiment } from "../services/geminiService";
 import { NexusSMCChart } from "./NexusSMCChart";
 import { FolderHeart, Thermometer, Radio, Timer, Binary, Landmark } from "lucide-react";
-import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip as RechartsTooltip } from "recharts";
+import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid } from "recharts";
 
 function FootprintChart({ candles }: { candles: FootprintCandle[] }) {
+  if (!candles || candles.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-[10px] font-black uppercase tracking-widest text-on-surface/20">
+        Waiting for Neural Order Pulse...
+      </div>
+    );
+  }
+
   return (
-    <div className="flex gap-2 h-full overflow-x-auto no-scrollbar pb-2">
-      {candles.map((candle, i) => (
-        <div key={i} className="flex-shrink-0 w-24 flex flex-col bg-surface-container-low/50 border border-outline-variant/10 rounded-lg overflow-hidden group hover:border-primary/40 transition-colors">
-          <div className="p-1.5 border-b border-outline-variant/5 bg-surface-container-high/30 text-center">
-            <span className="text-[7px] font-mono text-on-surface/40 uppercase tracking-tighter">{candle.time}</span>
-          </div>
-          <div className="flex-1 flex flex-col-reverse p-1">
-             {candle.levels.slice(0, 12).map((level, li) => {
-               const total = level.buyVol + level.sellVol;
-               const buyRatio = total > 0 ? level.buyVol / total : 0.5;
-               return (
-                 <div key={li} className={`h-[8.33%] flex items-center gap-1 relative ${level.isPOC ? 'bg-primary/10' : ''}`}>
-                    <div className="flex-1 text-right">
-                      <div className="h-full bg-secondary-container/20 absolute right-1/2 left-0 transition-all" style={{ opacity: buyRatio * 0.5 }} />
-                      <span className="text-[6px] font-mono text-secondary-container relative z-10">{Math.round(level.buyVol)}</span>
+    <div className="flex gap-1.5 h-full overflow-x-auto no-scrollbar pb-2 scroll-smooth px-2">
+      {candles.map((candle, i) => {
+        const sortedLevels = [...candle.levels].sort((a, b) => b.price - a.price);
+        const maxLevelVol = Math.max(...candle.levels.map(l => l.buyVol + l.sellVol)) || 1;
+        const candleDelta = candle.totalDelta;
+        const isBullish = candleDelta > 0;
+
+        return (
+          <div key={i} className={`flex-shrink-0 w-28 flex flex-col bg-surface-container-low/40 border rounded-xl overflow-hidden group transition-all duration-300 ${isBullish ? 'hover:border-secondary-container/40' : 'hover:border-tertiary-container/40'} border-outline-variant/10 shadow-sm`}>
+            {/* Header: Time & CVD */}
+            <div className="p-2 border-b border-outline-variant/5 bg-surface-container-high/40 flex justify-between items-center">
+              <span className="text-[7px] font-mono text-on-surface/40 uppercase font-black">{candle.time}</span>
+              <div className={`px-1.5 py-0.5 rounded text-[6px] font-black tabular-nums transition-colors ${isBullish ? 'bg-secondary-container/10 text-secondary-container' : 'bg-tertiary-container/10 text-tertiary-container'}`}>
+                CVD: {candle.cvd.toFixed(1)}
+              </div>
+            </div>
+
+            {/* Core Footprint Body */}
+            <div className="flex-1 flex flex-col gap-[1px] p-1 bg-surface-container-lowest/20">
+              {sortedLevels.slice(0, 16).map((level, li) => {
+                const levelVol = level.buyVol + level.sellVol;
+                const delta = level.delta;
+                const volumeIntensity = (levelVol / maxLevelVol) * 100;
+                const deltaIntensity = Math.min(1, Math.abs(delta) / (levelVol || 1));
+                const isPositiveDelta = delta > 0;
+
+                return (
+                  <div key={li} className={`h-[6.25%] flex items-center relative group/level ${level.isPOC ? 'bg-primary/5 ring-1 ring-primary/20 z-10' : ''}`}>
+                    {/* Price Label */}
+                    <div className={`absolute left-1/2 -translate-x-1/2 text-[5px] font-mono z-20 transition-opacity flex items-center gap-1 ${level.isPOC ? 'opacity-100 text-primary font-black' : 'opacity-0 group-hover/level:opacity-100 text-on-surface/30'}`}>
+                       <span>${level.price.toFixed(1)}</span>
                     </div>
-                    <div className="w-px h-full bg-outline-variant/20" />
-                    <div className="flex-1 text-left">
-                      <div className="h-full bg-tertiary-container/20 absolute left-1/2 right-0 transition-all" style={{ opacity: (1 - buyRatio) * 0.5 }} />
-                      <span className="text-[6px] font-mono text-tertiary-container relative z-10">{Math.round(level.sellVol)}</span>
+
+                    {/* Buy Side */}
+                    <div className="flex-1 h-full flex flex-row-reverse items-center pr-1 relative overflow-hidden">
+                      <div 
+                        className="absolute right-0 h-full bg-secondary-container transition-all duration-500" 
+                        style={{ width: `${(level.buyVol / maxLevelVol) * 100}%`, opacity: 0.15 + (volumeIntensity / 200) }} 
+                      />
+                      <span className="text-[6px] font-mono text-secondary-container font-black relative z-10 tabular-nums">{Math.round(level.buyVol)}</span>
                     </div>
+
+                    {/* Separator / Delta Indicator */}
+                    <div className="w-[2px] h-full flex flex-col justify-center bg-outline-variant/10">
+                       <div className={`w-full transition-all duration-500 ${isPositiveDelta ? 'bg-secondary-container' : 'bg-tertiary-container'}`} style={{ height: `${deltaIntensity * 100}%` }} />
+                    </div>
+
+                    {/* Sell Side */}
+                    <div className="flex-1 h-full flex items-center pl-1 relative overflow-hidden">
+                      <div 
+                        className="absolute left-0 h-full bg-tertiary-container transition-all duration-500" 
+                        style={{ width: `${(level.sellVol / maxLevelVol) * 100}%`, opacity: 0.15 + (volumeIntensity / 200) }} 
+                      />
+                      <span className="text-[6px] font-mono text-tertiary-container font-black relative z-10 tabular-nums">{Math.round(level.sellVol)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer: Stats */}
+            <div className="p-2 border-t border-outline-variant/10 bg-surface-container-high/40 space-y-1">
+              <div className="flex justify-between items-center">
+                 <span className="text-[7px] font-black uppercase text-on-surface/30">Total Vol</span>
+                 <span className="text-[8px] font-mono font-bold text-on-surface/80">{Math.round(candle.totalVolume)}</span>
+              </div>
+              <div className="h-[1px] w-full bg-outline-variant/5" />
+              <div className="flex justify-between items-center">
+                 <span className="text-[7px] font-black uppercase text-on-surface/30">Net Delta</span>
+                 <div className={`flex items-center gap-1 ${isBullish ? 'text-secondary-container' : 'text-tertiary-container'}`}>
+                    <span className="text-[8px] font-mono font-black">{isBullish ? '+' : ''}{Math.round(candle.totalDelta)}</span>
+                    {isBullish ? <TrendingUp className="w-2 h-2" /> : <TrendingDown className="w-2 h-2" />}
                  </div>
-               );
-             })}
+              </div>
+            </div>
           </div>
-          <div className="p-1 px-2 border-t border-outline-variant/10 bg-surface-container-high/30 flex justify-between items-center">
-             <span className={`text-[8px] font-black ${candle.totalDelta > 0 ? 'text-secondary-container' : 'text-tertiary-container'}`}>
-               Δ {candle.totalDelta.toFixed(0)}
-             </span>
-             <span className="text-[8px] font-bold text-on-surface/30">V {Math.round(candle.totalVolume)}</span>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -98,6 +151,15 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
   const [aiThesisType, setAiThesisType] = useState<'quick' | 'full'>('quick');
   const [aiThesis, setAiThesis] = useState<string>("");
   const [isGeneratingThesis, setIsGeneratingThesis] = useState(false);
+  const [thesisCooldown, setThesisCooldown] = useState(0);
+  const [orderFlowMode, setOrderFlowMode] = useState<'aggregated' | 'footprint'>('footprint');
+
+  useEffect(() => {
+    if (thesisCooldown > 0) {
+      const timer = setTimeout(() => setThesisCooldown(thesisCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [thesisCooldown]);
   const [portfolioTab, setPortfolioTab] = useState<'risk' | 'vaR'>('risk');
   const [showOrderFlow, setShowOrderFlow] = useState(false);
   const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
@@ -112,6 +174,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
   const [loadingSentiment, setLoadingSentiment] = useState(false);
   const [isExecutionOpen, setIsExecutionOpen] = useState(false);
   const [isExecuting, setIsExecuting] = useState<'buy' | 'sell' | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState<'buy' | 'sell' | null>(null);
 
   const assetData = marketData.find(a => a.id === assetId);
   const orderBook = orderBooks[assetId];
@@ -142,7 +205,10 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
     
     setZoomRange(prev => {
       const range = prev.end - prev.start;
-      const newRange = Math.max(10, Math.min(100, range * (1 + delta)));
+      const newRange = Math.max(5, Math.min(100, range * (1 + delta))); // Relaxed min zoom to 5%
+      
+      // Calculate mouse position relative to chart to zoom towards cursor? 
+      // For now, let's keep centered.
       const center = (prev.start + prev.end) / 2;
       
       let nextStart = center - newRange / 2;
@@ -161,10 +227,15 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
     });
   };
 
+  const handleMouseDown = () => setIsPanning(true);
+  const handleMouseUp = () => setIsPanning(false);
+
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isPanning) return;
     
-    const panSpeed = 0.5;
+    // movementX is the change in cursor position in pixels
+    // We need to convert this to % of the total dataset
+    const panSpeed = 0.15; // Adjusted sensitivity
     const delta = e.movementX * panSpeed;
     
     setZoomRange(prev => {
@@ -185,8 +256,24 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
     });
   };
 
+  const volatility = useMemo(() => {
+    if (history.length < 10) return 0;
+    const slices = history.slice(-10).map(h => h.price);
+    const mean = slices.reduce((a, b) => a + b, 0) / 10;
+    const variance = slices.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / 10;
+    const sd = Math.sqrt(variance);
+    const currentPrice = assetData ? parseFloat(assetData.price) : mean;
+    return (sd / currentPrice) * 10000; // Volatility in Basis Points
+  }, [history, assetData]);
+
   const handleExecution = (type: 'buy' | 'sell') => {
+    setShowTradeSummary(true);
     setIsExecuting(type);
+  };
+
+  const confirmExecution = () => {
+    // Keep isExecuting state for animation, but close the summary and proceed
+    setShowTradeSummary(false);
     setTimeout(() => {
       setIsExecuting(null);
     }, 1500);
@@ -352,21 +439,47 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
     };
   }, [riskCapital]);
 
+  const volScore = useMemo(() => {
+    if (history.length < 20) return 0;
+    const prices = history.slice(-20).map(h => h.price);
+    const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
+    const variance = prices.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / prices.length;
+    const stdDev = Math.sqrt(variance);
+    // Relative volatility as percentage of mean
+    return Math.min(100, (stdDev / mean) * 2000); 
+  }, [history]);
+
   const generateAIThesis = async () => {
+    if (thesisCooldown > 0) return;
     setIsGeneratingThesis(true);
     setShowAISidebar(true);
-    const prompt = `Generate a ${aiThesisType} institutional trading thesis for ${assetId} given the context: ${macroContext}. 
-    Current Price: ${assetData?.price}. Trend: ${assetData?.trend}. 
-    CVD Bias: ${latestCVD > 0 ? 'Accumulation' : 'Distribution'}.
-    SMC signals: ${smcMarkers.map(m => m.type).join(', ')}.`;
     
     try {
-      const res = await getSentiment(prompt, "Professional hedge fund analyst style report.");
-      setAiThesis(typeof res === 'string' ? res : "Strategic alignment confirmed. Optimal entry protocols initiated.");
+      const cotString = cotData ? `Bull/Bear: ${cotData.commercials.net > 0 ? "Bull" : "Bear"} | Non-Comm Net: ${cotData.nonCommercials.net}` : "N/A";
+      const intermarketString = intermarket ? `Yield10Y: ${intermarket.yield10Y} | DXY: ${intermarket.dxy}` : "N/A";
+      
+      const res = await getDeepMarketAnalysis(
+        assetId, 
+        assetData?.price || "Unknown", 
+        [`${assetId} current structural trend: ${assetData?.trend}`, `CVD: ${latestCVD}`],
+        cotString,
+        intermarketString
+      );
+      setAiThesis(res);
     } catch (e) {
-      setAiThesis("Neural override active. Execution bias remains bullish towards secondary liquidity targets.");
+      setAiThesis("The AI Oracle is currently recalibrating. Strategic alignment maintained.");
+    } finally {
+      setIsGeneratingThesis(false);
+      setThesisCooldown(60);
     }
-    setIsGeneratingThesis(false);
+  };
+
+  const executeTrade = (type: 'buy' | 'sell') => {
+    setIsExecuting(type);
+    setShowConfirmModal(null);
+    setTimeout(() => {
+      setIsExecuting(null);
+    }, 2500);
   };
 
   return (
@@ -395,12 +508,25 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
               <span className="text-xs text-on-surface/40 font-bold uppercase tracking-widest">Neural Market Detail · Real-Time</span>
             </div>
             
-              <div className="hidden lg:flex items-center gap-8 pl-8 border-l border-outline-variant/10">
-                <div>
-                  <p className="text-[10px] text-on-surface/40 uppercase font-bold tracking-widest mb-1">Spot Price</p>
-                  <p className="text-lg font-mono font-bold text-primary">{assetData?.price || "---"}</p>
-                </div>
-                <div className="relative">
+                <div className="hidden lg:flex items-center gap-8 pl-8 border-l border-outline-variant/10">
+                  <div>
+                    <p className="text-[10px] text-on-surface/40 uppercase font-bold tracking-widest mb-1">Spot Price</p>
+                    <p className="text-lg font-mono font-bold text-primary">{assetData?.price || "---"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-on-surface/40 uppercase font-bold tracking-widest mb-1">Volatility Index</p>
+                    <div className="flex items-center gap-2">
+                       <div className="w-16 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${volScore}%` }}
+                            className={`h-full ${volScore > 50 ? 'bg-tertiary-container' : 'bg-primary'}`} 
+                          />
+                       </div>
+                       <span className={`text-[10px] font-black font-mono ${volScore > 50 ? 'text-tertiary-container' : 'text-primary'}`}>{volScore.toFixed(1)}</span>
+                    </div>
+                  </div>
+                  <div className="relative">
                   <button 
                     onClick={() => setShowTradeSummary(!showTradeSummary)}
                     className="flex flex-col items-start group"
@@ -516,46 +642,79 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
             <motion.div 
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-8 p-4 bg-surface-container-high/40 rounded-2xl border border-outline-variant/10 flex items-center justify-between backdrop-blur-sm"
+              className="mb-8 space-y-4"
             >
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-3 border-r border-outline-variant/10 pr-6">
-                  <Landmark className="w-5 h-5 text-primary" />
-                  <div>
-                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-on-surface/40">CFTC COT Report</h4>
-                    <p className="text-xs font-mono font-black text-on-surface">Updated: {cotData.date}</p>
+              <div className="p-4 bg-surface-container-high/40 rounded-2xl border border-outline-variant/10 flex items-center justify-between backdrop-blur-sm">
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-3 border-r border-outline-variant/10 pr-6">
+                    <Landmark className="w-5 h-5 text-primary" />
+                    <div>
+                      <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-on-surface/40">CFTC COT Report</h4>
+                      <p className="text-xs font-mono font-black text-on-surface">Updated: {cotData.date}</p>
+                    </div>
                   </div>
-                </div>
-                
-                <div className="flex items-center gap-8">
-                  <div className="flex flex-col">
-                    <span className="text-[9px] font-bold text-secondary-container uppercase">Commercials (Hedgers)</span>
-                    <span className="text-sm font-mono font-black text-on-surface">
-                      Net {cotData.commercials.net > 0 ? '+' : ''}{cotData.commercials.net.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[9px] font-bold text-tertiary-container uppercase">Non-Commercials (Specs)</span>
-                    <span className="text-sm font-mono font-black text-on-surface">
-                       Net {cotData.nonCommercials.net > 0 ? '+' : ''}{cotData.nonCommercials.net.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[9px] font-bold text-on-surface/40 uppercase">Positioning Ratio</span>
-                    <div className="flex items-center gap-2">
-                       <span className={`text-[10px] font-black uppercase ${cotData.sentiment === 'bullish' ? 'text-secondary-container' : 'text-tertiary-container'}`}>
-                         {cotData.nonCommercials.net > 0 ? 'Smart Money Accumulation' : 'Institutional Distribution'}
-                       </span>
-                       <div className="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
-                          <div className={`h-full ${cotData.sentiment === 'bullish' ? 'bg-secondary-container' : 'bg-tertiary-container'}`} style={{ width: `${Math.min(100, (Math.abs(cotData.nonCommercials.net) / (cotData.nonCommercials.long + cotData.nonCommercials.short) * 100))}%` }} />
-                       </div>
+                  
+                  <div className="flex items-center gap-8">
+                    <div className="flex flex-col">
+                      <span className="text-[9px] font-bold text-secondary-container uppercase">Commercials (Hedgers)</span>
+                      <span className="text-sm font-mono font-black text-on-surface">
+                        Net {cotData.commercials.net > 0 ? '+' : ''}{cotData.commercials.net.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[9px] font-bold text-tertiary-container uppercase">Non-Commercials (Specs)</span>
+                      <span className="text-sm font-mono font-black text-on-surface">
+                         Net {cotData.nonCommercials.net > 0 ? '+' : ''}{cotData.nonCommercials.net.toLocaleString()}
+                      </span>
                     </div>
                   </div>
                 </div>
+                <div className="px-4 py-1.5 rounded-lg bg-primary/5 border border-primary/20">
+                  <p className="text-[9px] font-black text-primary uppercase tracking-widest">Bullish Accumulation Regime</p>
+                </div>
               </div>
-              <div className="px-4 py-1.5 rounded-lg bg-primary/5 border border-primary/20">
-                <p className="text-[9px] font-black text-primary uppercase tracking-widest">Bullish Accumulation Regime</p>
-              </div>
+
+              {/* COT History Chart */}
+              {cotData.history && (
+                <div className="h-32 bg-surface-container-high/20 rounded-xl border border-outline-variant/5 p-4 relative overflow-hidden">
+                  <div className="absolute top-4 left-4 z-10">
+                    <h5 className="text-[8px] font-black uppercase tracking-widest text-on-surface/40">Institutional Net Position Trend</h5>
+                  </div>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={cotData.history}>
+                      <defs>
+                        <linearGradient id="colorNonComm" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--color-secondary-container)" stopOpacity={0.1}/>
+                          <stop offset="95%" stopColor="var(--color-secondary-container)" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+                      <XAxis dataKey="date" hide />
+                      <YAxis hide />
+                      <RechartsTooltip 
+                        contentStyle={{ backgroundColor: 'rgba(28, 27, 31, 0.9)', border: 'none', borderRadius: '4px', fontSize: '8px' }}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="nonCommercialsNet" 
+                        name="Non-Commercial Net"
+                        stroke="var(--color-secondary-container)" 
+                        fill="url(#colorNonComm)" 
+                        strokeWidth={2}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="commercialsNet" 
+                        name="Commercial Net"
+                        stroke="var(--color-tertiary-container)" 
+                        fill="none" 
+                        strokeWidth={1}
+                        strokeDasharray="4 4"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -655,11 +814,11 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
 
                     <button 
                       onClick={generateAIThesis}
-                      disabled={isGeneratingThesis}
-                      className="mt-6 w-full py-4 bg-primary text-on-primary font-black uppercase text-[10px] tracking-[0.2em] rounded-xl shadow-lg shadow-primary/30 active:scale-95 transition-all flex items-center justify-center gap-2"
+                      disabled={isGeneratingThesis || thesisCooldown > 0}
+                      className="mt-6 w-full py-4 bg-primary text-on-primary font-black uppercase text-[10px] tracking-[0.2em] rounded-xl shadow-lg shadow-primary/30 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                     >
                       {isGeneratingThesis ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
-                      Regenerate Thesis
+                      {isGeneratingThesis ? "Synthesizing..." : thesisCooldown > 0 ? `Ready in ${thesisCooldown}s` : "Regenerate Thesis"}
                     </button>
                   </motion.div>
                 )}
@@ -683,13 +842,24 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                 </div>
                 {showOrderFlow && (
                    <div className="flex items-center gap-4 animate-in fade-in slide-in-from-right-4 duration-500">
+                      <div className="flex bg-surface-container-high rounded-xl p-0.5 border border-outline-variant/10">
+                        <button 
+                          onClick={() => setOrderFlowMode('aggregated')}
+                          className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${orderFlowMode === 'aggregated' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface/40 hover:text-on-surface/60'}`}
+                        >
+                          Core Flow
+                        </button>
+                        <button 
+                          onClick={() => setOrderFlowMode('footprint')}
+                          className={`px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${orderFlowMode === 'footprint' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface/40 hover:text-on-surface/60'}`}
+                        >
+                          Footprint
+                        </button>
+                      </div>
+                      <div className="w-px h-4 bg-outline-variant/10" />
                       <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-secondary-container/20 bg-secondary-container/5 backdrop-blur-md">
                         <Binary className="w-3.5 h-3.5 text-secondary-container" />
                         <span className="text-[9px] font-black uppercase tracking-tighter text-secondary-container">CVD BIAS: {latestCVD > 0 ? 'ACCUMULATION' : 'DISTRIBUTION'}</span>
-                      </div>
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-tertiary-container/20 bg-tertiary-container/5 backdrop-blur-md">
-                        <Radio className="w-3.5 h-3.5 text-tertiary-container animate-pulse" />
-                        <span className="text-[9px] font-black uppercase tracking-tighter text-tertiary-container">FLOW SENSITIVITY: 98%</span>
                       </div>
                    </div>
                 )}
@@ -706,13 +876,14 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                 >
                 {/* Ops Hub Overlay */}
                 <div className="absolute top-6 right-6 z-30 flex items-center gap-3">
-                   <button 
-                    onClick={() => generateAIThesis()}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-primary/10 border-primary/20 text-primary hover:bg-primary/20 transition-all backdrop-blur-md"
-                   >
-                     <BrainCircuit className="w-3.5 h-3.5" />
-                     <span className="text-[10px] font-black uppercase tracking-widest">AI Snapshot</span>
-                   </button>
+                    <button 
+                     onClick={() => generateAIThesis()}
+                     disabled={isGeneratingThesis || thesisCooldown > 0}
+                     className="flex items-center gap-2 px-3 py-1.5 rounded-full border bg-primary/10 border-primary/20 text-primary hover:bg-primary/20 transition-all backdrop-blur-md disabled:opacity-50"
+                    >
+                      {isGeneratingThesis ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BrainCircuit className="w-3.5 h-3.5" />}
+                      <span className="text-[10px] font-black uppercase tracking-widest">{isGeneratingThesis ? "Synthesizing..." : thesisCooldown > 0 ? `Ready in ${thesisCooldown}s` : "AI Snapshot"}</span>
+                    </button>
                    <button 
                     onClick={(e) => { e.stopPropagation(); setShowOpsHub(!showOpsHub); }}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${showOpsHub ? 'bg-primary border-primary text-on-primary shadow-lg shadow-primary/20' : 'bg-surface-container-high/80 backdrop-blur-md border-outline-variant/20 text-on-surface/60 hover:text-on-surface'}`}
@@ -763,7 +934,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                     <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface/40">Nexus Institutional Engine · {timeframe} Analysis</span>
                   </div>
                   <div className="flex items-center gap-4 mb-2">
-                    <h3 className="text-xl font-bold font-mono transition-all duration-75">
+                    <h3 className="text-xl font-bold font-mono transition-all duration-75 relative group">
                       <motion.span
                         key={assetData?.price}
                         animate={isExecuting ? { 
@@ -777,13 +948,34 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                       >
                         {assetData?.price}
                       </motion.span>
+                      {/* Price pulse shadow */}
+                      <div className="absolute -inset-2 bg-primary/5 rounded-lg blur-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                     </h3>
+                    
+                    <div className="h-8 w-px bg-outline-variant/10 mx-1" />
+                    
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Thermometer className={`w-2.5 h-2.5 ${volatility > 15 ? 'text-error animate-pulse' : 'text-on-surface/30'}`} />
+                        <span className="text-[7px] font-black text-on-surface/30 uppercase tracking-[0.2em]">Neural Vol (BP)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+                           <motion.div 
+                             animate={{ width: `${Math.min(100, volatility * 5)}%`, backgroundColor: volatility > 15 ? 'var(--color-error)' : 'var(--color-primary)' }}
+                             className="h-full" 
+                           />
+                        </div>
+                        <span className={`text-[10px] font-mono font-black tabular-nums ${volatility > 15 ? 'text-error' : 'text-primary'}`}>{volatility.toFixed(1)}</span>
+                      </div>
+                    </div>
+
+                    <div className="h-8 w-px bg-outline-variant/10 mx-1" />
+
                     <div className="flex items-center gap-2 px-2 py-0.5 bg-primary/10 border border-primary/20 rounded-full">
                        <span className="text-[8px] font-black text-primary uppercase">
                          Zoom: {zoomRange.end - zoomRange.start > 0 ? Math.round(100 / ((zoomRange.end - zoomRange.start) / 100)) : 100}%
                        </span>
-                       <div className="w-px h-2 bg-primary/20" />
-                       <span className="text-[8px] font-black text-primary uppercase">Offset: {Math.round(zoomRange.start)}%</span>
                     </div>
                   </div>
                 </div>                {/* Volume Profile (VPVR) Overlay - Left Side */}
@@ -813,6 +1005,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                   liquidityPools={liquidityPools}
                   killZones={killZones}
                   smcZones={smcZones}
+                  orderBook={orderBook}
                   premiumDiscount={premiumDiscount}
                   zoomRange={zoomRange}
                   onZoomRangeChange={setZoomRange}
@@ -820,19 +1013,53 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                   onHoverLiquidity={(id) => setHoveredEntityId(id)}
                 />
               </div>
-  ) : (
+            ) : (
               <div className="h-[550px] bg-surface-container-lowest/30 rounded-xl border border-outline-variant/10 p-4 flex flex-col gap-4 animate-in zoom-in-95 duration-500 overflow-hidden">
-                 <div className="flex-1 overflow-hidden">
-                    <FootprintChart candles={footprints} />
-                 </div>
+                 {orderFlowMode === 'footprint' ? (
+                   <div className="flex-1 overflow-hidden">
+                      <FootprintChart candles={footprints} />
+                   </div>
+                 ) : (
+                   <div className="flex-1 overflow-hidden flex flex-col items-center justify-center relative bg-surface-container-low/20 rounded-xl border border-outline-variant/5">
+                      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-secondary-container/10 to-transparent" />
+                      <div className="relative z-10 text-center space-y-4">
+                        <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-primary/20">
+                           <Activity className="w-8 h-8 text-primary animate-pulse" />
+                        </div>
+                        <h4 className="text-sm font-black uppercase tracking-[0.3em] text-on-surface">Neural Flow Core Engaged</h4>
+                        <p className="text-[10px] text-on-surface/40 max-w-[280px] mx-auto leading-relaxed">
+                          Aggregating multi-source order books. Neural weighting biased towards <span className="text-secondary-container">secondary liquidity</span> targets.
+                        </p>
+                        <div className="grid grid-cols-2 gap-4 mt-8">
+                           <div className="p-4 bg-surface-container-high/40 rounded-xl border border-outline-variant/10 text-left">
+                              <span className="text-[8px] font-black text-on-surface/30 uppercase block mb-1">Buy Pressure</span>
+                              <span className="text-xs font-mono font-black text-secondary-container">64.2%</span>
+                           </div>
+                           <div className="p-4 bg-surface-container-high/40 rounded-xl border border-outline-variant/10 text-left">
+                              <span className="text-[8px] font-black text-on-surface/30 uppercase block mb-1">Sell Pressure</span>
+                              <span className="text-xs font-mono font-black text-tertiary-container">35.8%</span>
+                           </div>
+                        </div>
+                      </div>
+                   </div>
+                 )}
                  
                  <div className="h-24 bg-surface-container-high/20 rounded-xl border border-outline-variant/5 p-4 flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                        <div className="flex flex-col">
-                         <span className="text-[10px] font-black uppercase tracking-widest text-on-surface/40">Cumulative Volume Delta (CVD)</span>
+                         <span className="text-[10px] font-black uppercase tracking-widest text-on-surface/40">Nexus Flow Pressure (CVD)</span>
                          <span className="text-[8px] font-bold text-primary/40 uppercase">Aggregated Market Intensity</span>
                        </div>
-                       <div className="flex items-center gap-3">
+                       <div className="flex items-center gap-6">
+                          <div className="hidden sm:flex items-center gap-3 bg-surface-container-highest/20 px-4 py-1.5 rounded-xl border border-outline-variant/10 backdrop-blur-sm">
+                             <span className="text-[8px] font-black uppercase tracking-[0.2em] text-on-surface/30">Order Pressure</span>
+                             <div className="w-24 h-1.5 bg-surface-container-low rounded-full overflow-hidden flex">
+                                <div className="h-full bg-tertiary-container shadow-[0_0_8px_var(--color-tertiary-container)]" style={{ width: `${Math.max(5, Math.min(95, 50 - (latestCVD / 100)))}%` }} />
+                                <div className="w-px h-full bg-on-surface/10" />
+                                <div className="h-full bg-secondary-container shadow-[0_0_8px_var(--color-secondary-container)]" style={{ width: `${Math.max(5, Math.min(95, 50 + (latestCVD / 100)))}%` }} />
+                             </div>
+                          </div>
+                          <div className="flex items-center gap-3">
                           <div className={`flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container-highest border border-outline-variant/10`}>
                              {latestCVD > footprints[0]?.cvd ? <TrendingUp className="w-3 h-3 text-secondary-container" /> : <TrendingDown className="w-3 h-3 text-tertiary-container" />}
                              <span className={`text-[10px] font-mono font-black ${latestCVD > footprints[0]?.cvd ? 'text-secondary-container' : 'text-tertiary-container'}`}>
@@ -846,8 +1073,9 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                                </AreaChart>
                              </ResponsiveContainer>
                           </div>
-                       </div>
-                    </div>
+                        </div>
+                     </div>
+                  </div>
                     <div className="flex-1 flex items-end gap-1 px-1">
                        {footprints.map((f, i) => (
                          <motion.div 
@@ -1414,7 +1642,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
 
                   <div className="grid grid-cols-2 gap-4">
                     <button 
-                      onClick={() => handleExecution('buy')}
+                      onClick={() => setShowConfirmModal('buy')}
                       className={`py-3 text-[10px] font-black uppercase tracking-widest rounded transition-all flex items-center justify-center gap-2 border ${
                         isExecuting === 'buy' 
                           ? 'bg-secondary-container text-on-secondary-container border-secondary-container animate-pulse' 
@@ -1425,7 +1653,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                       {isExecuting === 'buy' ? 'Executing...' : 'Neural Buy'}
                     </button>
                     <button 
-                      onClick={() => handleExecution('sell')}
+                      onClick={() => setShowConfirmModal('sell')}
                       className={`py-3 text-[10px] font-black uppercase tracking-widest rounded transition-all flex items-center justify-center gap-2 border ${
                         isExecuting === 'sell' 
                           ? 'bg-tertiary-container text-on-tertiary-container border-tertiary-container animate-pulse' 
@@ -1534,6 +1762,69 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
             </div>
           </div>
         </div>
+        
+        {/* Trade Confirmation Modal */}
+        <AnimatePresence>
+          {showConfirmModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-surface/80 backdrop-blur-xl"
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="w-full max-w-md bg-surface-container border border-outline-variant/30 rounded-2xl p-8 shadow-2xl"
+              >
+                <div className="flex items-center gap-4 mb-6">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${showConfirmModal === 'buy' ? 'bg-secondary-container/20 text-secondary-container' : 'bg-tertiary-container/20 text-tertiary-container'}`}>
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black uppercase tracking-tight">Confirm Execution</h3>
+                    <p className="text-[10px] text-on-surface/40 font-bold uppercase tracking-widest">Protocol V4 Override Required</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4 mb-8">
+                  <div className="flex justify-between items-center p-3 bg-surface-container-low rounded-xl">
+                    <span className="text-[10px] font-black uppercase text-on-surface/30">Asset Symbol</span>
+                    <span className="text-sm font-black text-on-surface">{assetId}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-surface-container-low rounded-xl">
+                    <span className="text-[10px] font-black uppercase text-on-surface/30">Order Type</span>
+                    <span className={`text-sm font-black ${showConfirmModal === 'buy' ? 'text-secondary-container' : 'text-tertiary-container'} uppercase`}>{showConfirmModal} position</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-surface-container-low rounded-xl">
+                    <span className="text-[10px] font-black uppercase text-on-surface/30">Lot Size / Lev</span>
+                    <span className="text-sm font-mono font-black text-on-surface">{orderSize.toFixed(4)} @ {leverage}x</span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-surface-container-low rounded-xl">
+                    <span className="text-[10px] font-black uppercase text-on-surface/30">Price Depth</span>
+                    <span className="text-sm font-mono font-black text-on-surface">${assetData?.price}</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => setShowConfirmModal(null)}
+                    className="flex-1 py-4 border border-outline-variant/20 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-surface-container-high transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={() => executeTrade(showConfirmModal as 'buy' | 'sell')}
+                    className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest text-on-primary shadow-lg ${showConfirmModal === 'buy' ? 'bg-secondary-container' : 'bg-tertiary-container'}`}
+                  >
+                    Authorize Order
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.div>
   );

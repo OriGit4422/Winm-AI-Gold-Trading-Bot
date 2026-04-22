@@ -17,6 +17,7 @@ interface NexusSMCChartProps {
   liquidityPools: any[];
   killZones: any[];
   smcZones: any[];
+  orderBook?: { bids: [number, number][]; asks: [number, number][] };
   premiumDiscount?: any;
   zoomRange: { start: number; end: number };
   onZoomRangeChange: (range: any) => void;
@@ -25,6 +26,36 @@ interface NexusSMCChartProps {
   comparisonAssetId?: string | null;
   comparisonHistory?: any[];
 }
+
+const DepthChart = ({ bids, asks }: { bids: [number, number][]; asks: [number, number][] }) => {
+  const maxVolume = Math.max(...bids.map(b => b[1]), ...asks.map(a => a[1]));
+  
+  return (
+    <div className="absolute left-4 top-1/2 -translate-y-1/2 w-32 flex flex-col gap-px pointer-events-none opacity-40">
+       <div className="space-y-0.5 flex flex-col-reverse">
+          {asks.slice(0, 15).map((ask, i) => (
+            <div key={i} className="h-2 flex items-center justify-end group">
+              <div 
+                className="h-full bg-tertiary-container/30 rounded-l-sm" 
+                style={{ width: `${(ask[1] / maxVolume) * 100}%` }} 
+              />
+            </div>
+          ))}
+       </div>
+       <div className="h-px bg-outline-variant/20 my-1" />
+       <div className="space-y-0.5">
+          {bids.slice(0, 15).map((bid, i) => (
+            <div key={i} className="h-2 flex items-center justify-end">
+              <div 
+                className="h-full bg-secondary-container/30 rounded-l-sm" 
+                style={{ width: `${(bid[1] / maxVolume) * 100}%` }} 
+              />
+            </div>
+          ))}
+       </div>
+    </div>
+  );
+};
 
 const FootprintMiniCandle = ({ candle }: { candle: FootprintCandle }) => {
   return (
@@ -68,6 +99,7 @@ export function NexusSMCChart({
   liquidityPools, 
   killZones,
   smcZones,
+  orderBook,
   premiumDiscount,
   zoomRange,
   onZoomRangeChange,
@@ -77,6 +109,8 @@ export function NexusSMCChart({
   comparisonHistory
 }: NexusSMCChartProps) {
   const [showOrderFlowSubpane, setShowOrderFlowSubpane] = useState(false);
+  const [showDepthOverlay, setShowDepthOverlay] = useState(false);
+  const [showVPVR, setShowVPVR] = useState(true);
   const [hoveredFVG, setHoveredFVG] = useState<string | null>(null);
   const [hoveredPool, setHoveredPool] = useState<string | null>(null);
 
@@ -87,6 +121,26 @@ export function NexusSMCChart({
     return history.slice(s, e);
   }, [history, zoomRange]);
 
+  const volumeProfile = useMemo(() => {
+    if (visibleHistory.length === 0 || !showVPVR) return [];
+    const prices = visibleHistory.map(h => h.price);
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const step = (max - min) / 20;
+    
+    const profile = Array.from({ length: 20 }).map((_, i) => {
+      const low = min + i * step;
+      const high = low + step;
+      const vol = visibleHistory
+        .filter(h => h.price >= low && h.price < high)
+        .length; // Mock volume based on time spend in zone
+      return { low, high, vol };
+    });
+    
+    const maxVol = Math.max(...profile.map(p => p.vol));
+    return profile.map(p => ({ ...p, weight: (p.vol / maxVol) * 100 }));
+  }, [visibleHistory, showVPVR]);
+
   const activeFootprints = useMemo(() => footprints.slice(-15), [footprints]);
 
   return (
@@ -95,6 +149,18 @@ export function NexusSMCChart({
         {/* Toggle Controls */}
         <div className="absolute top-4 right-4 z-20 flex gap-2">
           <button 
+             onClick={() => setShowVPVR(!showVPVR)}
+             className={`px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-widest transition-all ${showVPVR ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-high/50 text-on-surface/60 border-outline-variant/20 hover:text-on-surface'}`}
+          >
+             VPVR
+          </button>
+          <button 
+             onClick={() => setShowDepthOverlay(!showDepthOverlay)}
+             className={`px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-widest transition-all ${showDepthOverlay ? 'bg-primary text-on-primary border-primary' : 'bg-surface-container-high/50 text-on-surface/60 border-outline-variant/20 hover:text-on-surface'}`}
+          >
+             Depth
+          </button>
+          <button 
             onClick={() => setShowOrderFlowSubpane(!showOrderFlowSubpane)}
             className={`px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${showOrderFlowSubpane ? 'bg-primary text-on-primary border-primary shadow-[0_0_15px_rgba(var(--color-primary-rgb),0.3)]' : 'bg-surface-container-high/50 text-on-surface/60 border-outline-variant/20 hover:text-on-surface'}`}
           >
@@ -102,6 +168,25 @@ export function NexusSMCChart({
             Flow Engine
           </button>
         </div>
+
+        {/* Depth Overlay */}
+        {showDepthOverlay && orderBook && (
+          <DepthChart bids={orderBook.bids} asks={orderBook.asks} />
+        )}
+
+        {/* VPVR Overlay */}
+        {showVPVR && volumeProfile.length > 0 && (
+          <div className="absolute right-0 top-0 h-full w-24 pointer-events-none flex flex-col-reverse py-[84px] pr-[60px]">
+             {volumeProfile.map((p, i) => (
+                <div key={i} className="flex-1 flex justify-end items-center">
+                   <div 
+                      className="h-[80%] bg-primary/20 rounded-l-sm border-r border-primary/40" 
+                      style={{ width: `${p.weight}%` }} 
+                   />
+                </div>
+             ))}
+          </div>
+        )}
 
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={visibleHistory.map((h, i) => {

@@ -181,7 +181,35 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
           </div>
 
           {/* Main Workspace */}
-          <div className="flex-1 overflow-y-auto p-8 bg-surface-container-low/30 relative">
+          <div className="flex-1 overflow-y-auto p-8 bg-surface-container-low/30 relative" id="strategy-workspace">
+             <svg className="absolute inset-0 pointer-events-none z-0 overflow-visible w-full h-full">
+                {blocks.map(block => 
+                  Object.entries(block.linkedParams || {}).map(([param, sourceId]) => {
+                    if (!sourceId) return null;
+                    const sourceIndex = blocks.findIndex(b => b.id === sourceId);
+                    const targetIndex = blocks.findIndex(b => b.id === block.id);
+                    if (sourceIndex === -1 || targetIndex === -1) return null;
+
+                    // This is a simplified vertical connection line logic
+                    // In a real nodal editor we'd use getBoundingClientRect, 
+                    // but for this vertical flow we can visualize it as a side-path
+                    return (
+                      <motion.path
+                        key={`${block.id}-${param}-${sourceId}`}
+                        initial={{ pathLength: 0, opacity: 0 }}
+                        animate={{ pathLength: 1, opacity: 1 }}
+                        d={`M 100 ${sourceIndex * 180 + 100} Q 40 ${(sourceIndex + targetIndex) / 2 * 180 + 100} 100 ${targetIndex * 180 + 120}`}
+                        stroke="var(--color-primary)"
+                        strokeWidth="1"
+                        fill="none"
+                        strokeDasharray="4 4"
+                        className="opacity-20"
+                      />
+                    );
+                  })
+                )}
+             </svg>
+
             {blocks.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                 <div className="w-20 h-20 border-2 border-dashed border-outline-variant rounded-full flex items-center justify-center mb-6">

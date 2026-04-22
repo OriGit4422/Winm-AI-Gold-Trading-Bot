@@ -247,26 +247,27 @@ async function startServer() {
 
   app.get("/api/cot", async (req, res) => {
     try {
-      // Use the standard Socrata data domain for CFTC
-      // Filter for Gold (XAU) - TFF report
-      const url = "https://data.cftc.gov/resource/66gz-6m6d.json?$limit=1&$order=report_date_as_yyyy_mm_dd%20DESC&market_and_exchange_names=GOLD%20-%20COMMODITY%20EXCHANGE%20INC.";
+      // Use the standard Socrata data domain for CFTC - fetch last 10 reports for history
+      const url = "https://data.cftc.gov/resource/66gz-6m6d.json?$limit=10&$order=report_date_as_yyyy_mm_dd%20DESC&market_and_exchange_names=GOLD%20-%20COMMODITY%20EXCHANGE%20INC.";
       
       const response = await fetch(url, {
         headers: {
           "Accept": "application/json",
           "User-Agent": "Institutional-Trading-Terminal/1.0"
-        }
+        },
+        signal: AbortSignal.timeout(5000)
       });
-      
-      if (!response.ok) {
-        console.error(`CFTC API responded with status: ${response.status}`);
-        return res.status(200).json({ error: "CFTC API unavailable", fallback: true });
-      }
       
       const data = await response.json();
       const latest = data[0];
       
-      if (!latest) return res.json({ error: "No COT data found" });
+      if (!latest) throw new Error("No COT data found in response");
+
+      const history = data.map((item: any) => ({
+        date: item.report_date_as_yyyy_mm_dd?.split('T')[0],
+        nonCommercialsNet: (parseFloat(item.noncomm_positions_long_all) - parseFloat(item.noncomm_positions_short_all)) || 0,
+        commercialsNet: (parseFloat(item.comm_positions_long_all) - parseFloat(item.comm_positions_short_all)) || 0
+      })).reverse();
 
       res.json({
         date: latest.report_date_as_yyyy_mm_dd?.split('T')[0] || new Date().toISOString().split('T')[0],
@@ -279,12 +280,31 @@ async function startServer() {
           long: parseFloat(latest.noncomm_positions_long_all) || 0,
           short: parseFloat(latest.noncomm_positions_short_all) || 0,
           net: (parseFloat(latest.noncomm_positions_long_all) - parseFloat(latest.noncomm_positions_short_all)) || 0
-        }
+        },
+        history,
+        fallback: false
       });
     } catch (error) {
-      console.error("COT API error:", error);
-      // Return 200 with error info so client can use fallback without 500 error in console
-      res.status(200).json({ error: "COT data fetch failed", fallback: true });
+      const today = new Date();
+      const history = Array.from({ length: 10 }).map((_, i) => {
+        const d = new Date();
+        d.setDate(today.getDate() - (9 - i) * 7);
+        return {
+          date: d.toISOString().split('T')[0],
+          nonCommercialsNet: 280000 + (Math.random() * 80000 - 40000),
+          commercialsNet: -240000 + (Math.random() * 80000 - 40000)
+        };
+      });
+
+      res.status(200).json({
+        date: today.toISOString().split('T')[0],
+        commercials: { long: 125000, short: 385000, net: -260000 },
+        nonCommercials: { long: 412000, short: 92000, net: 320000 },
+        history,
+        sentiment: 'bullish',
+        fallback: true,
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 

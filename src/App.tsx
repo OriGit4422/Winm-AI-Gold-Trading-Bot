@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TopAppBar } from "./components/TopAppBar";
 import { BottomNavBar } from "./components/BottomNavBar";
 import { Dashboard } from "./components/Dashboard";
@@ -11,11 +11,28 @@ import { Config } from "./components/Config";
 import { History } from "./components/History";
 import { AssetDetailView } from "./components/AssetDetailView";
 import { motion, AnimatePresence } from "motion/react";
+import { ShortcutIndicator } from "./components/ShortcutIndicator";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("terminal");
   const [selectedAssetDetail, setSelectedAssetDetail] = useState<string | null>(null);
   const [historyFilter, setHistoryFilter] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      if (e.altKey) {
+        switch (e.key) {
+          case "1": setActiveTab("terminal"); break;
+          case "2": setActiveTab("terminal"); break; // In case they expect 2 for markets
+          case "3": setActiveTab("history"); break;
+          case "4": setActiveTab("config"); break;
+          case "d": setSelectedAssetDetail(prev => prev ? null : "XAU/USD"); break;
+        }
+      }
+    };
+    window.addEventListener("keydown", handleGlobalShortcuts);
+    return () => window.removeEventListener("keydown", handleGlobalShortcuts);
+  }, []);
 
   const renderScreen = () => {
     switch (activeTab) {
@@ -67,6 +84,7 @@ export default function App() {
       </AnimatePresence>
 
       <BottomNavBar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <ShortcutIndicator />
 
       {/* Background Decorative Gradients */}
       <div className="fixed top-0 left-0 w-full h-full pointer-events-none -z-10 overflow-hidden">

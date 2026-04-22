@@ -14,6 +14,7 @@ export interface COTData {
   nonCommercials: { long: number; short: number; net: number };
   retail: { long: number; short: number; net: number };
   sentiment: 'bullish' | 'bearish' | 'neutral';
+  history?: { date: string, nonCommercialsNet: number, commercialsNet: number }[];
 }
 
 export interface OrderFlowPoint {
@@ -217,16 +218,20 @@ export function useCOTData(assetId: string) {
 
         if (res.ok && contentType && contentType.includes("application/json")) {
           const data = await res.json();
-          if (data.error) throw new Error(data.error);
-
+          
           setCotData({
             assetId,
             date: data.date || new Date().toLocaleDateString(),
             commercials: data.commercials,
             nonCommercials: data.nonCommercials,
             retail: { long: 0, short: 0, net: 0 },
-            sentiment: (data.nonCommercials?.net || 0) > 0 ? 'bullish' : 'bearish'
+            sentiment: (data.nonCommercials?.net || 0) > 0 ? 'bullish' : 'bearish',
+            history: data.history
           });
+          
+          if (data.error) {
+            console.warn("COT data served from institutional fallback due to:", data.error);
+          }
         } else {
           throw new Error(`Invalid response: ${res.status}`);
         }
@@ -238,7 +243,12 @@ export function useCOTData(assetId: string) {
           commercials: { long: 245000, short: 85000, net: 160000 },
           nonCommercials: { long: 110000, short: 190000, net: -80000 },
           retail: { long: 45000, short: 48000, net: -3000 },
-          sentiment: 'bullish'
+          sentiment: 'bullish',
+          history: Array.from({ length: 10 }).map((_, i) => ({
+            date: new Date(Date.now() - (9 - i) * 7 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+            nonCommercialsNet: 100000 + (Math.random() * 50000),
+            commercialsNet: -150000 + (Math.random() * 50000)
+          }))
         });
       } finally {
         setLoading(false);

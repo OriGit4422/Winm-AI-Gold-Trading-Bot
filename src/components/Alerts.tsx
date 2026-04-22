@@ -101,13 +101,20 @@ export function Alerts() {
     { id: "GBP/JPY", type: "LIQUIDITY SWEEP HIGH", time: "45m ago", confidence: "78%", trend: "up", price: "191.24" },
   ];
 
+  const [showConfirmation, setShowConfirmation] = useState(false);
+
   const handleTradeNow = (signal: any) => {
     setSelectedSignal(signal);
     setIsSuccess(false);
+    setShowConfirmation(false);
     setShowDrawer(true);
   };
 
   const handleConfirmTrade = async () => {
+    if (!showConfirmation) {
+      setShowConfirmation(true);
+      return;
+    }
     setIsExecuting(true);
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 1500));
@@ -124,6 +131,7 @@ export function Alerts() {
     // Close after a short delay
     setTimeout(() => {
       setShowDrawer(false);
+      setShowConfirmation(false);
     }, 2000);
   };
 
@@ -389,25 +397,69 @@ export function Alerts() {
                       </button>
                     </div>
 
-                    <div className="bg-surface-container-highest/30 p-5 rounded-lg border border-outline-variant/20">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <Bolt className="w-5 h-5 text-primary fill-primary" />
-                          <div>
-                            <p className="font-bold text-sm tracking-tight">TRADE EXECUTION</p>
-                            <p className="text-[10px] text-on-surface/50 uppercase tracking-widest">Manual Override Active</p>
+                    {showConfirmation ? (
+                      <motion.div 
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="space-y-6"
+                      >
+                         <div className="bg-surface-container-highest/50 p-6 rounded-lg border border-primary/20 space-y-4">
+                            <h3 className="text-xs font-black uppercase tracking-widest text-primary">Trade Confirmation Summary</h3>
+                            <div className="grid grid-cols-2 gap-y-4">
+                               <div className="flex flex-col">
+                                 <span className="text-[10px] text-on-surface/30 uppercase font-black">Asset</span>
+                                 <span className="text-sm font-bold">{selectedSignal.id}</span>
+                               </div>
+                               <div className="flex flex-col">
+                                 <span className="text-[10px] text-on-surface/30 uppercase font-black">Direction</span>
+                                 <span className={`text-sm font-bold ${selectedSignal.trend === 'up' ? 'text-secondary-container' : 'text-tertiary-container'}`}>{selectedSignal.trend === 'up' ? 'BUY / LONG' : 'SELL / SHORT'}</span>
+                               </div>
+                               <div className="flex flex-col">
+                                 <span className="text-[10px] text-on-surface/30 uppercase font-black">Volume</span>
+                                 <span className="text-sm font-bold">{lotSize} Lots</span>
+                               </div>
+                               <div className="flex flex-col">
+                                 <span className="text-[10px] text-on-surface/30 uppercase font-black">Leverage</span>
+                                 <span className="text-sm font-bold">{leverage}x</span>
+                               </div>
+                               <div className="flex flex-col">
+                                 <span className="text-[10px] text-on-surface/30 uppercase font-black">Risk Param</span>
+                                 <span className="text-sm font-bold">{riskLimit}% Portfolio</span>
+                               </div>
+                               <div className="flex flex-col">
+                                 <span className="text-[10px] text-on-surface/30 uppercase font-black">Execution Mode</span>
+                                 <span className="text-sm font-bold text-primary">MARKET (INSTANT)</span>
+                               </div>
+                            </div>
+                         </div>
+                         <div className="p-3 bg-secondary-container/5 rounded border border-secondary-container/10 flex items-center gap-3">
+                           <ShieldCheck className="w-5 h-5 text-secondary-container" />
+                           <p className="text-[10px] text-on-surface/60 font-medium italic">
+                             Institutional execution verified. Press confirm to transmit order to liquidity pool.
+                           </p>
+                         </div>
+                      </motion.div>
+                    ) : (
+                      <>
+                        <div className="bg-surface-container-highest/30 p-5 rounded-lg border border-outline-variant/20">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <Bolt className="w-5 h-5 text-primary fill-primary" />
+                              <div>
+                                <p className="font-bold text-sm tracking-tight">TRADE EXECUTION</p>
+                                <p className="text-[10px] text-on-surface/50 uppercase tracking-widest">Manual Override Active</p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="bg-primary/5 border-l-2 border-primary p-3">
+                            <p className="text-xs text-primary leading-relaxed">
+                              Configure your parameters below to execute the trade on the <span className="font-bold">{selectedSignal.id}</span> pair.
+                            </p>
                           </div>
                         </div>
-                      </div>
-                      <div className="bg-primary/5 border-l-2 border-primary p-3">
-                        <p className="text-xs text-primary leading-relaxed">
-                          Configure your parameters below to execute the trade on the <span className="font-bold">{selectedSignal.id}</span> pair.
-                        </p>
-                      </div>
-                    </div>
 
-                    <div className="grid grid-cols-1 gap-6">
-                      <div className="space-y-2">
+                        <div className="grid grid-cols-1 gap-6">
+                          <div className="space-y-2">
                         <label className="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant">Lot Size</label>
                         <div className="bg-surface-container-lowest p-1 rounded border border-outline-variant/20 focus-within:border-primary transition-colors flex items-center">
                           <input 
@@ -466,7 +518,7 @@ export function Alerts() {
                             Executing...
                           </>
                         ) : (
-                          "Confirm Execution"
+                          showConfirmation ? "Confirm Institutional Order" : "Proceed to Confirmation"
                         )}
                       </button>
                       <button 

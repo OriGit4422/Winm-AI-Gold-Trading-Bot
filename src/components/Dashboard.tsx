@@ -14,14 +14,20 @@ import {
   Newspaper,
   Sparkles,
   Loader2,
-  Settings
+  Settings,
+  Pencil,
+  Type,
+  Ruler,
+  Eraser
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { useMarketData, useAssetHistory } from "../services/marketService";
+import { useMarketData, useAssetHistory, useIntermarketData, useCOTData } from "../services/marketService";
 import { useNewsFeed, NewsArticle } from "../services/newsService";
-import { summarizeArticle, SummaryLength, getSentiment, Sentiment, getDeepMarketAnalysis } from "../services/geminiService";
+import { summarizeArticle, SummaryLength, getSentiment, Sentiment, getDeepMarketAnalysis, AlphaSignal } from "../services/geminiService";
 import ReactMarkdown from "react-markdown";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
+import { IntermarketPanel } from "./IntermarketPanel";
+import { AlphaSignals } from "./AlphaSignals";
 
 interface NewsArticleCardProps {
   article: NewsArticle;
@@ -125,9 +131,47 @@ export function Dashboard({ onSelectAsset }: { onSelectAsset?: (id: string) => v
   const { news, loading: newsLoading } = useNewsFeed(newsCategory);
   const [deepAnalysis, setDeepAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisCooldown, setAnalysisCooldown] = useState(0);
+
+  useEffect(() => {
+    if (analysisCooldown > 0) {
+      const timer = setTimeout(() => setAnalysisCooldown(analysisCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [analysisCooldown]);
+  const [drawings, setDrawings] = useState<{ type: 'trend' | 'fibo' | 'text', startX: number, startY: number, endX?: number, endY?: number, text?: string }[]>([]);
+  const [activeTool, setActiveTool] = useState<'trend' | 'fibo' | 'text' | null>(null);
+  const [currentDrawing, setCurrentDrawing] = useState<any>(null);
   const history = useAssetHistory(selectedAsset, "1m", 60);
 
   const activeAssetData = marketData.find(a => a.id === selectedAsset);
+  
+  const handleChartMouseDown = (e: React.MouseEvent) => {
+    if (!activeTool) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setCurrentDrawing({ type: activeTool, startX: x, startY: y, endX: x, endY: y });
+  };
+
+  const handleChartMouseMove = (e: React.MouseEvent) => {
+    if (!currentDrawing) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setCurrentDrawing({ ...currentDrawing, endX: x, endY: y });
+  };
+
+  const handleChartMouseUp = () => {
+    if (!currentDrawing) return;
+    if (currentDrawing.type === 'text') {
+      const text = window.prompt("Enter annotation:");
+      if (text) setDrawings([...drawings, { ...currentDrawing, text }]);
+    } else {
+      setDrawings([...drawings, currentDrawing]);
+    }
+    setCurrentDrawing(null);
+  };
   
   // Analytics Calculations
   const analytics = useMemo(() => {
@@ -154,12 +198,16 @@ export function Dashboard({ onSelectAsset }: { onSelectAsset?: (id: string) => v
   }, [marketData, historyData, history, selectedAsset]);
 
   const handleDeepAnalysis = async () => {
-    if (!activeAssetData) return;
+    if (!activeAssetData || analysisCooldown > 0) return;
     setIsAnalyzing(true);
-    const headlines = news.slice(0, 5).map(n => n.title);
-    const result = await getDeepMarketAnalysis(selectedAsset, activeAssetData.price, headlines);
-    setDeepAnalysis(result);
-    setIsAnalyzing(false);
+    try {
+      const headlines = news.slice(0, 5).map(n => n.title);
+      const result = await getDeepMarketAnalysis(selectedAsset, activeAssetData.price, headlines);
+      setDeepAnalysis(result);
+    } finally {
+      setIsAnalyzing(false);
+      setAnalysisCooldown(60); 
+    }
   };
 
   useEffect(() => {
@@ -168,22 +216,24 @@ export function Dashboard({ onSelectAsset }: { onSelectAsset?: (id: string) => v
     }
   }, [selectedAsset]);
 
-  const signals = useMemo(() => {
-    if (!analytics) return [];
-    return marketData
-      .filter(a => ["XAU/USD", "EUR/USD", "GBP/JPY"].includes(a.id))
-      .map(asset => {
-        const m = asset.id === "XAU/USD" ? analytics.gold : asset.id === "EUR/USD" ? analytics.eur : null;
-        if (!m) return null;
-        return {
-          id: asset.id,
-          type: m.momentum > 0 ? "LONG" : "SHORT",
-          reason: m.volatility > 7 ? "Volatility Spike" : "Momentum Cross",
-          confidence: (75 + Math.random() * 20).toFixed(0) + "%"
-        };
-      })
-      .filter(Boolean);
-  }, [analytics, marketData]);
+  const { intermarket } = useIntermarketData();
+  const { cotData: cot } = useCOTData("XAU/USD");
+
+  const marketContext = useMemo(() => {
+    const assetString = marketData.map(a => `[${a.id}: LIVE_PRICE=${a.price} (RAW=${a.price.replace(/,/g, '')})]`).join(" | ");
+    const newsString = news.slice(0, 3).map(n => n.title).join("; ");
+    
+    let cotString = "";
+    if (cot) {
+      const netSign = cot.nonCommercials.net > 0 ? "+" : "";
+      cotString = `[COT_REPORT (Gold/XAU): Non-Commercial_Net=${netSign}${cot.nonCommercials.net.toLocaleString()} (L:${cot.nonCommercials.long.toLocaleString()}, S:${cot.nonCommercials.short.toLocaleString()}) | Bias=${cot.sentiment?.toUpperCase()}]`;
+    }
+    
+    const intermarketString = intermarket ? `[INTERMARKET: DXY=${intermarket.dxy} | YIELD_10Y=${intermarket.yield10Y}%]` : "";
+    
+    const context = `SYSTEM_TIME: ${new Date().toISOString()} | CURRENT_MARKET_PRICES: ${assetString} | LATEST_NEWS: ${newsString} | ${cotString} | ${intermarketString}`;
+    return context;
+  }, [marketData, news, cot, intermarket]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-px bg-outline-variant/10 border border-outline-variant/10 min-h-[calc(100vh-12rem)]">
@@ -228,7 +278,9 @@ export function Dashboard({ onSelectAsset }: { onSelectAsset?: (id: string) => v
           })}
         </div>
 
-        <div className="pt-8 mt-8 border-t border-outline-variant/5">
+        <IntermarketPanel />
+
+        <div className="pt-8 border-t border-outline-variant/5">
           <h3 className="text-[9px] font-bold text-on-surface/30 uppercase tracking-[0.2em] mb-4">Volatility Index</h3>
           <div className="space-y-4">
             {["XAU/USD", "EUR/USD"].map(id => {
@@ -261,11 +313,11 @@ export function Dashboard({ onSelectAsset }: { onSelectAsset?: (id: string) => v
           </div>
           <button 
             onClick={handleDeepAnalysis}
-            disabled={isAnalyzing}
+            disabled={isAnalyzing || analysisCooldown > 0}
             className="flex items-center gap-2 px-6 py-3 bg-primary text-on-primary text-[10px] font-bold uppercase tracking-widest rounded hover:bg-primary/90 transition-all disabled:opacity-50"
           >
             {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            Run AI Synthesis
+            {isAnalyzing ? "Run AI Synthesis" : analysisCooldown > 0 ? `Ready in ${analysisCooldown}s` : "Run AI Synthesis"}
           </button>
         </header>
 
@@ -284,9 +336,76 @@ export function Dashboard({ onSelectAsset }: { onSelectAsset?: (id: string) => v
               key="chart"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="space-y-8"
+              className="space-y-4"
             >
-              <div className="h-[300px] bg-surface-container-low/50 rounded-lg p-4 border border-outline-variant/5">
+              <div className="flex items-center gap-2 mb-2 p-1 bg-surface-container-low border border-outline-variant/10 rounded-lg w-fit">
+                {[
+                  { id: 'trend', icon: Pencil, label: 'Trend' },
+                  { id: 'fibo', icon: Ruler, label: 'Fib' },
+                  { id: 'text', icon: Type, label: 'Text' },
+                ].map(tool => (
+                  <button
+                    key={tool.id}
+                    onClick={() => setActiveTool(activeTool === tool.id ? null : tool.id as any)}
+                    className={`p-2 rounded transition-all ${activeTool === tool.id ? 'bg-primary text-on-primary' : 'text-on-surface/40 hover:bg-surface-container-high'}`}
+                    title={tool.label}
+                  >
+                    <tool.icon className="w-4 h-4" />
+                  </button>
+                ))}
+                <div className="w-px h-4 bg-outline-variant/20 mx-1" />
+                <button
+                  onClick={() => setDrawings([])}
+                  className="p-2 text-on-surface/40 hover:text-error transition-colors"
+                  title="Clear All"
+                >
+                  <Eraser className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div 
+                className="h-[350px] bg-surface-container-low/50 rounded-lg p-4 border border-outline-variant/5 relative cursor-crosshair group"
+                onMouseDown={handleChartMouseDown}
+                onMouseMove={handleChartMouseMove}
+                onMouseUp={handleChartMouseUp}
+              >
+                 <svg className="absolute inset-0 pointer-events-none z-10 w-full h-full overflow-hidden">
+                    {drawings.map((d, i) => (
+                      <React.Fragment key={i}>
+                        {d.type === 'trend' && (
+                          <line x1={d.startX} y1={d.startY} x2={d.endX} y2={d.endY} stroke="var(--color-primary)" strokeWidth="1.5" />
+                        )}
+                        {d.type === 'fibo' && (
+                          <g>
+                            <line x1={d.startX} y1={d.startY} x2={d.endX} y2={d.endY} stroke="var(--color-primary)" strokeWidth="0.5" strokeDasharray="2 2" opacity="0.3" />
+                            {[0, 0.236, 0.382, 0.5, 0.618, 0.786, 1].map(lvl => {
+                              const y = d.startY + (d.endY! - d.startY) * lvl;
+                              return (
+                                <g key={lvl}>
+                                  <line x1="0" y1={y} x2="100%" y2={y} stroke="var(--color-secondary-container)" strokeWidth="0.5" opacity="0.2" />
+                                  <text x="5" y={y - 2} fontSize="8" fill="var(--color-secondary-container)" opacity="0.5">{lvl === 0 ? 'START' : lvl === 1 ? 'END' : lvl}</text>
+                                </g>
+                              );
+                            })}
+                          </g>
+                        )}
+                        {d.type === 'text' && (
+                          <text x={d.startX} y={d.startY} fill="var(--color-primary)" fontSize="10" fontWeight="bold">{d.text}</text>
+                        )}
+                      </React.Fragment>
+                    ))}
+                    {currentDrawing && (
+                      <>
+                        {currentDrawing.type === 'trend' && (
+                          <line x1={currentDrawing.startX} y1={currentDrawing.startY} x2={currentDrawing.endX} y2={currentDrawing.endY} stroke="var(--color-primary)" strokeWidth="1.5" strokeDasharray="4 4" />
+                        )}
+                        {currentDrawing.type === 'fibo' && (
+                          <line x1={currentDrawing.startX} y1={currentDrawing.startY} x2={currentDrawing.endX} y2={currentDrawing.endY} stroke="var(--color-primary)" strokeWidth="1" strokeDasharray="4 4" />
+                        )}
+                      </>
+                    )}
+                 </svg>
+
                  <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={history}>
                     <defs>
@@ -337,33 +456,8 @@ export function Dashboard({ onSelectAsset }: { onSelectAsset?: (id: string) => v
 
       {/* Right Sidebar: Signals & Actions */}
       <aside className="lg:col-span-3 bg-surface-container-low p-6 space-y-8">
-        <div>
-          <div className="flex items-center gap-2 mb-6">
-            <Zap className="w-4 h-4 text-primary" />
-            <h3 className="text-[11px] font-bold uppercase tracking-[0.2em]">Alpha Signals</h3>
-          </div>
-          <div className="space-y-4">
-            {signals.map((sig, i) => (
-              <motion.div 
-                key={sig?.id || i}
-                initial={{ x: 20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: i * 0.1 }}
-                className="p-4 bg-surface-container-high/50 rounded border border-outline-variant/10 flex flex-col gap-3 group hover:border-primary/40 transition-all"
-              >
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold">{sig?.id}</span>
-                  <div className={`px-2 py-0.5 rounded-sm text-[9px] font-extrabold ${sig?.type === 'LONG' ? 'bg-secondary-container/20 text-secondary-container' : 'bg-tertiary-container/20 text-tertiary-container'}`}>
-                    {sig?.type}
-                  </div>
-                </div>
-                <div className="flex justify-between items-end">
-                  <p className="text-[10px] text-on-surface/40 font-medium">{sig?.reason}</p>
-                  <span className="text-[9px] font-bold text-primary">{sig?.confidence} Prob.</span>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+        <div className="space-y-6">
+          <AlphaSignals marketContext={marketContext} />
         </div>
 
         <div className="pt-8 border-t border-outline-variant/5">
