@@ -1,12 +1,12 @@
 import { Landmark, ShieldCheck, Zap, Activity, Bolt, Play, History, TrendingUp, BarChart3, Loader2, Settings2, BarChart } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { StrategyBuilder } from "./StrategyBuilder";
+import { useNavigate } from "react-router-dom";
 import { BacktestView } from "./BacktestView";
 
 export function Config() {
+  const navigate = useNavigate();
   const [showBacktest, setShowBacktest] = useState(false);
-  const [showBuilder, setShowBuilder] = useState(false);
 
   // Bot Parameters State
   const [lotSize, setLotSize] = useState(0.10);
@@ -17,9 +17,6 @@ export function Config() {
   return (
     <div className="space-y-10">
       <AnimatePresence>
-        {showBuilder && (
-          <StrategyBuilder onClose={() => setShowBuilder(false)} />
-        )}
         {showBacktest && (
           <BacktestView onClose={() => setShowBacktest(false)} />
         )}
@@ -81,7 +78,7 @@ export function Config() {
               Visually build and edit your trading logic using the WINM AI block-based interface.
             </p>
             <button 
-              onClick={() => setShowBuilder(true)}
+              onClick={() => navigate("/builder")}
               className="w-full py-3 bg-surface-container-highest text-on-surface text-[10px] font-bold uppercase tracking-widest rounded-sm hover:bg-surface-bright transition-all flex items-center justify-center gap-2 border border-outline-variant/20 group"
             >
               <Settings2 className="w-4 h-4 text-primary group-hover:rotate-90 transition-transform duration-500" />

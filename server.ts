@@ -1,4 +1,6 @@
 import express from "express";
+import cors from "cors";
+import "dotenv/config";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer as createViteServer } from "vite";
@@ -10,6 +12,17 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
+  app.use(cors());
+  app.use(express.json());
+
+  // Simple logger
+  app.use((req, res, next) => {
+    if (req.url.startsWith("/api")) {
+      console.log(`[API Request] ${req.method} ${req.url}`);
+    }
+    next();
+  });
+
   const server = createServer(app);
   const wss = new WebSocketServer({ server });
   const PORT = 3000;
@@ -238,6 +251,18 @@ async function startServer() {
         }
       }
 
+      // Simulated real-time CO2 emissions data for industrial analysis
+      results.co2Emissions = {
+        oil: { 
+          value: 395.4 + (Math.random() * 2), 
+          trend: Array.from({ length: 12 }).map(() => 390 + Math.random() * 10) 
+        },
+        gas: { 
+          value: 202.1 + (Math.random() * 1.5), 
+          trend: Array.from({ length: 12 }).map(() => 195 + Math.random() * 10) 
+        }
+      };
+
       res.json(results);
     } catch (error) {
       console.error("Intermarket API error:", error);
@@ -250,13 +275,17 @@ async function startServer() {
       // Use the standard Socrata data domain for CFTC - fetch last 10 reports for history
       const url = "https://data.cftc.gov/resource/66gz-6m6d.json?$limit=10&$order=report_date_as_yyyy_mm_dd%20DESC&market_and_exchange_names=GOLD%20-%20COMMODITY%20EXCHANGE%20INC.";
       
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
       const response = await fetch(url, {
         headers: {
           "Accept": "application/json",
           "User-Agent": "Institutional-Trading-Terminal/1.0"
         },
-        signal: AbortSignal.timeout(5000)
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
       
       const data = await response.json();
       const latest = data[0];

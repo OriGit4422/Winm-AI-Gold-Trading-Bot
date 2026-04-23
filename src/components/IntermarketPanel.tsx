@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useIntermarketData } from "../services/marketService";
 import { motion, AnimatePresence } from "motion/react";
+import { ResponsiveContainer, LineChart, Line } from "recharts";
 import { 
   Activity, 
   ChevronDown, 
@@ -13,7 +14,7 @@ import {
 } from "lucide-react";
 
 export function IntermarketPanel() {
-  const { intermarket, loading } = useIntermarketData();
+  const { intermarket, loading, error } = useIntermarketData();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   if (loading && !intermarket) {
@@ -50,6 +51,12 @@ export function IntermarketPanel() {
             className="overflow-hidden"
           >
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-4">
+               {error && (
+                 <div className="md:col-span-2 lg:col-span-1 p-2 bg-tertiary-container/10 border border-tertiary-container/20 rounded text-[9px] font-black text-tertiary-container uppercase tracking-widest flex items-center gap-2">
+                    <Activity className="w-3 h-3" />
+                    {error}
+                 </div>
+               )}
                <div className="bg-surface-container-high/30 p-3 rounded-lg border border-outline-variant/5 flex items-center justify-between group hover:border-primary/20 transition-all">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
@@ -88,6 +95,41 @@ export function IntermarketPanel() {
                  <p className="text-[10px] leading-relaxed text-on-surface/60 italic">
                    Rising yields historically exert downward pressure on Gold and provide a structural floor for the USD. Current decoupling suggests institutional accumulation.
                  </p>
+               </div>
+
+               {/* CO2 Emissions Section */}
+               <div className="bg-surface-container-high/30 p-4 rounded-lg border border-outline-variant/5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-tertiary-container rounded-full shadow-[0_0_8px_var(--color-tertiary-container)]" />
+                      <span className="text-[9px] font-black text-on-surface/60 uppercase tracking-widest">Commodity CO2 Footprint</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {intermarket?.co2Emissions && Object.entries(intermarket.co2Emissions).map(([key, data]) => (
+                      <div key={key} className="flex flex-col gap-2">
+                        <div className="flex justify-between items-end">
+                          <span className="text-[10px] font-bold uppercase tracking-tighter text-on-surface/40">{key} (KG/UNIT)</span>
+                          <span className="text-xs font-mono font-black text-on-surface">{data.value.toFixed(1)}</span>
+                        </div>
+                        <div className="h-6 w-full">
+                           <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={data.trend.map((v, i) => ({ v, i }))}>
+                                <Line 
+                                  type="monotone" 
+                                  dataKey="v" 
+                                  stroke={key === 'oil' ? "var(--color-tertiary-container)" : "var(--color-primary)"} 
+                                  strokeWidth={1.5} 
+                                  dot={false} 
+                                  isAnimationActive={false}
+                                />
+                              </LineChart>
+                           </ResponsiveContainer>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                </div>
             </div>
           </motion.div>

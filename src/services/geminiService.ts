@@ -248,6 +248,35 @@ export async function getSentiment(title: string, description: string): Promise<
   });
 }
 
+export async function getAssetSentiment(assetId: string, marketContext: string): Promise<Sentiment> {
+  const cacheKey = `asset-sentiment-${assetId}-${marketContext.slice(0, 50)}`;
+  const cached = getCached<Sentiment>(cacheKey, CACHE_TTL);
+  if (cached) return cached;
+
+  return geminiQueue.add(async () => {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Analyze the current market sentiment for ${assetId} based on the provided institutional context. 
+        Respond with ONLY one word: "positive", "negative", or "neutral".
+        
+        Institutional Context:
+        ${marketContext}`,
+      });
+
+      const sentimentText = response.text.toLowerCase().trim();
+      let result: Sentiment = "neutral";
+      if (sentimentText.includes("positive")) result = "positive";
+      else if (sentimentText.includes("negative")) result = "negative";
+      
+      setCache(cacheKey, result);
+      return result;
+    } catch (error) {
+      console.error("Gemini asset sentiment error:", error);
+      return "neutral";
+    }
+  });
+}
 export async function getDeepMarketAnalysis(
   assetId: string, 
   currentPrice: string, 

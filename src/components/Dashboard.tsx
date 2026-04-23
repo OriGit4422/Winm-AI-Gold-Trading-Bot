@@ -128,7 +128,7 @@ export function Dashboard({ onSelectAsset }: { onSelectAsset?: (id: string) => v
   const { data: marketData, isConnected, historyData } = useMarketData();
   const [selectedAsset, setSelectedAsset] = useState("XAU/USD");
   const [newsCategory, setNewsCategory] = useState("all");
-  const { news, loading: newsLoading } = useNewsFeed(newsCategory);
+  const { news, loading: newsLoading, error: newsError } = useNewsFeed(newsCategory);
   const [deepAnalysis, setDeepAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisCooldown, setAnalysisCooldown] = useState(0);
@@ -500,7 +500,18 @@ export function Dashboard({ onSelectAsset }: { onSelectAsset?: (id: string) => v
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {newsLoading ? (
+          {newsError ? (
+            <div className="col-span-full py-12 flex flex-col items-center justify-center bg-surface-container-high/20 rounded-lg border border-dashed border-outline-variant/30">
+               <Newspaper className="w-10 h-10 text-on-surface/10 mb-4" />
+               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-tertiary-container">{newsError}</p>
+               <button 
+                 onClick={() => window.location.reload()}
+                 className="mt-4 px-4 py-1.5 bg-surface-container-highest border border-outline-variant/10 text-[9px] font-black uppercase tracking-widest hover:bg-surface-bright transition-all"
+               >
+                 Re-establish Link
+               </button>
+            </div>
+          ) : newsLoading ? (
              Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="h-40 bg-outline-variant/5 animate-pulse rounded" />
             ))

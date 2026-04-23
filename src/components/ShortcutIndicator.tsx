@@ -19,6 +19,7 @@ export function ShortcutIndicator() {
         if (e.key === "2") label = "Markets Nav";
         if (e.key === "3") label = "History Nav";
         if (e.key === "4") label = "Config Nav";
+        if (e.key === "b") label = "Builder Nav";
         if (e.key === "s") label = "Search Activated";
         if (e.key === "d") label = "Detail Toggle";
         
@@ -63,6 +64,7 @@ export const KEYBOARD_GUIDE = [
   { key: "ALT + 2", desc: "Open Markets" },
   { key: "ALT + 3", desc: "Open History" },
   { key: "ALT + 4", desc: "Open Config" },
+  { key: "ALT + B", desc: "Open Builder" },
   { key: "ALT + S", desc: "Quick Search" },
   { key: "ALT + D", desc: "Toggle Details" },
 ];

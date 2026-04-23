@@ -26,13 +26,15 @@ import {
   Waves
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { useAssetHistory, useMarketData, Timeframe, useCOTData, useOrderFlow, useIntermarketData, FootprintCandle } from "../services/marketService";
-import { getSentiment, getDeepMarketAnalysis, Sentiment } from "../services/geminiService";
+import { useAssetHistory, useMarketData, Timeframe, useCOTData, useOrderFlow, useIntermarketData, FootprintCandle, useOrderBook, OrderBookData } from "../services/marketService";
+import { getSentiment, getAssetSentiment, getDeepMarketAnalysis, Sentiment } from "../services/geminiService";
 import { NexusSMCChart } from "./NexusSMCChart";
 import { FolderHeart, Thermometer, Radio, Timer, Binary, Landmark } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid } from "recharts";
 
 function FootprintChart({ candles }: { candles: FootprintCandle[] }) {
+  const [hoveredLevel, setHoveredLevel] = useState<{ price: number; buyVol: number; sellVol: number; delta: number } | null>(null);
+
   if (!candles || candles.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-[10px] font-black uppercase tracking-widest text-on-surface/20">
@@ -42,7 +44,38 @@ function FootprintChart({ candles }: { candles: FootprintCandle[] }) {
   }
 
   return (
-    <div className="flex gap-1.5 h-full overflow-x-auto no-scrollbar pb-2 scroll-smooth px-2">
+    <div className="flex gap-1.5 h-full overflow-x-auto no-scrollbar pb-2 scroll-smooth px-2 relative">
+      <AnimatePresence>
+        {hoveredLevel && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-surface-container-highest border border-primary/20 rounded-lg p-2 shadow-2xl backdrop-blur-md pointer-events-none min-w-[120px]"
+          >
+            <p className="text-[8px] font-black text-primary uppercase tracking-widest mb-1">Price Pulse Detail</p>
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono">
+                <span className="text-on-surface/40">Price:</span>
+                <span className="font-bold">${hoveredLevel.price.toFixed(1)}</span>
+              </div>
+              <div className="flex justify-between text-[10px] font-mono">
+                <span className="text-secondary-container">Buy Vol:</span>
+                <span className="font-bold">{Math.round(hoveredLevel.buyVol)}</span>
+              </div>
+              <div className="flex justify-between text-[10px] font-mono">
+                <span className="text-tertiary-container">Sell Vol:</span>
+                <span className="font-bold">{Math.round(hoveredLevel.sellVol)}</span>
+              </div>
+              <div className={`flex justify-between text-[10px] font-mono pt-1 border-t border-outline-variant/10 ${hoveredLevel.delta > 0 ? 'text-secondary-container' : 'text-tertiary-container'}`}>
+                <span>Delta:</span>
+                <span className="font-black">{hoveredLevel.delta > 0 ? '+' : ''}{Math.round(hoveredLevel.delta)}</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {candles.map((candle, i) => {
         const sortedLevels = [...candle.levels].sort((a, b) => b.price - a.price);
         const maxLevelVol = Math.max(...candle.levels.map(l => l.buyVol + l.sellVol)) || 1;
@@ -50,7 +83,7 @@ function FootprintChart({ candles }: { candles: FootprintCandle[] }) {
         const isBullish = candleDelta > 0;
 
         return (
-          <div key={i} className={`flex-shrink-0 w-28 flex flex-col bg-surface-container-low/40 border rounded-xl overflow-hidden group transition-all duration-300 ${isBullish ? 'hover:border-secondary-container/40' : 'hover:border-tertiary-container/40'} border-outline-variant/10 shadow-sm`}>
+          <div key={i} className={`flex-shrink-0 w-32 flex flex-col bg-surface-container-low/40 border rounded-xl overflow-hidden group transition-all duration-300 ${isBullish ? 'hover:border-secondary-container/40' : 'hover:border-tertiary-container/40'} border-outline-variant/10 shadow-sm hover:scale-[1.02] hover:z-10`}>
             {/* Header: Time & CVD */}
             <div className="p-2 border-b border-outline-variant/5 bg-surface-container-high/40 flex justify-between items-center">
               <span className="text-[7px] font-mono text-on-surface/40 uppercase font-black">{candle.time}</span>
@@ -69,9 +102,14 @@ function FootprintChart({ candles }: { candles: FootprintCandle[] }) {
                 const isPositiveDelta = delta > 0;
 
                 return (
-                  <div key={li} className={`h-[6.25%] flex items-center relative group/level ${level.isPOC ? 'bg-primary/5 ring-1 ring-primary/20 z-10' : ''}`}>
+                  <div 
+                    key={li} 
+                    onMouseEnter={() => setHoveredLevel({ price: level.price, buyVol: level.buyVol, sellVol: level.sellVol, delta: level.delta })}
+                    onMouseLeave={() => setHoveredLevel(null)}
+                    className={`h-[6.25%] flex items-center relative group/level cursor-crosshair transition-colors hover:bg-on-surface/5 ${level.isPOC ? 'bg-primary/5 ring-1 ring-primary/20 z-10' : ''}`}
+                  >
                     {/* Price Label */}
-                    <div className={`absolute left-1/2 -translate-x-1/2 text-[5px] font-mono z-20 transition-opacity flex items-center gap-1 ${level.isPOC ? 'opacity-100 text-primary font-black' : 'opacity-0 group-hover/level:opacity-100 text-on-surface/30'}`}>
+                    <div className={`absolute left-1/2 -translate-x-1/2 text-[5px] font-mono z-20 transition-opacity flex items-center gap-1 ${level.isPOC ? 'opacity-100 text-primary font-black scale-110' : 'opacity-0 group-hover/level:opacity-100 text-on-surface/30'}`}>
                        <span>${level.price.toFixed(1)}</span>
                     </div>
 
@@ -85,8 +123,8 @@ function FootprintChart({ candles }: { candles: FootprintCandle[] }) {
                     </div>
 
                     {/* Separator / Delta Indicator */}
-                    <div className="w-[2px] h-full flex flex-col justify-center bg-outline-variant/10">
-                       <div className={`w-full transition-all duration-500 ${isPositiveDelta ? 'bg-secondary-container' : 'bg-tertiary-container'}`} style={{ height: `${deltaIntensity * 100}%` }} />
+                    <div className="w-[3px] h-full flex flex-col justify-center bg-outline-variant/10 relative z-10">
+                       <div className={`w-full transition-all duration-500 rounded-px ${isPositiveDelta ? 'bg-secondary-container' : 'bg-tertiary-container'}`} style={{ height: `${deltaIntensity * 100}%` }} />
                     </div>
 
                     {/* Sell Side */}
@@ -124,6 +162,109 @@ function FootprintChart({ candles }: { candles: FootprintCandle[] }) {
   );
 }
 
+function OrderBookVisualizer({ data, assetId }: { data: OrderBookData | null, assetId: string }) {
+  const [hoveredRow, setHoveredRow] = useState<{ price: number; size: number; total: number; side: 'bid' | 'ask' } | null>(null);
+
+  if (!data) return (
+     <div className="flex flex-col items-center justify-center h-full gap-3 p-8 border border-outline-variant/10 rounded-xl bg-surface-container-low/20">
+        <Loader2 className="w-6 h-6 animate-spin text-primary/40" />
+        <span className="text-[10px] font-black uppercase text-on-surface/20 tracking-widest">Bridging Order Pulse...</span>
+     </div>
+  );
+
+  const maxTotal = Math.max(
+    ...data.bids.map(b => b.total),
+    ...data.asks.map(a => a.total)
+  ) || 1;
+
+  const formatPrice = (p: number) => p.toLocaleString(undefined, { minimumFractionDigits: assetId.includes("JPY") ? 3 : assetId.includes("BTC") ? 1 : 4 });
+
+  return (
+    <div className="flex flex-col h-full bg-surface-container-low/20 rounded-xl border border-outline-variant/10 overflow-hidden backdrop-blur-md relative">
+      <AnimatePresence>
+        {hoveredRow && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="absolute top-2 left-1/2 -translate-x-1/2 z-50 bg-surface-container-highest/90 backdrop-blur-md border border-outline-variant/30 rounded px-2 py-1 pointer-events-none shadow-xl"
+          >
+            <div className="flex flex-col items-center gap-0.5">
+              <span className={`text-[9px] font-black uppercase ${hoveredRow.side === 'bid' ? 'text-secondary-container' : 'text-tertiary-container'}`}>{hoveredRow.side} Order Block</span>
+              <span className="text-[10px] font-mono font-bold text-on-surface">${formatPrice(hoveredRow.price)} · {hoveredRow.size.toFixed(4)} Units</span>
+              <div className="w-full h-[1px] bg-outline-variant/10 my-0.5" />
+              <span className="text-[8px] font-mono text-on-surface/40">Aggregated Intensity: {hoveredRow.total.toFixed(2)}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex-1 flex flex-col group/book">
+        {/* Asks (Sells) */}
+        <div className="flex-1 flex flex-col-reverse overflow-hidden px-3 py-2">
+          {data.asks.slice().reverse().map((ask, i) => (
+            <div 
+              key={i} 
+              onMouseEnter={() => setHoveredRow({ ...ask, side: 'ask' })}
+              onMouseLeave={() => setHoveredRow(null)}
+              className="flex justify-between items-center h-[18px] relative group/row cursor-pointer"
+            >
+              <div 
+                className={`absolute right-0 h-full transition-all duration-300 ${hoveredRow?.price === ask.price ? 'bg-tertiary-container/30' : 'bg-tertiary-container/10'}`}
+                style={{ width: `${(ask.total / maxTotal) * 100}%` }}
+              />
+              <span className="text-[10px] font-mono font-black text-tertiary-container relative z-10 tabular-nums">{formatPrice(ask.price)}</span>
+              <span className="text-[9px] font-mono text-on-surface/40 relative z-10 tabular-nums font-bold">{ask.size.toFixed(assetId.includes("BTC") ? 4 : 2)}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Mid Market Section */}
+        <div className="py-4 px-4 border-y border-outline-variant/10 bg-surface-container-highest/30 flex justify-between items-center relative overflow-hidden group/mid">
+          <div className="absolute inset-x-0 inset-y-0 bg-primary/5 animate-pulse opacity-50" />
+          <div className="absolute inset-y-0 left-0 w-1 bg-primary/40 group-hover/mid:w-2 transition-all" />
+          
+          <div className="flex flex-col relative z-10">
+            <div className="flex items-center gap-2">
+               <span className="text-sm font-mono font-black tabular-nums text-on-surface group-hover/mid:text-primary transition-colors">{formatPrice(data.midPrice)}</span>
+                {data.midPrice > data.bids[0].price ? <TrendingUp className="w-3.5 h-3.5 text-secondary-container" /> : <TrendingDown className="w-3.5 h-3.5 text-tertiary-container" />}
+            </div>
+            <div className="flex items-center gap-1.5">
+               <div className="w-1.5 h-1.5 bg-primary/40 rounded-full animate-ping" />
+               <span className="text-[8px] font-black uppercase text-on-surface/30 tracking-widest">Neural Midpoint Intensity</span>
+            </div>
+          </div>
+          <div className="text-right relative z-10 flex flex-col items-end gap-1">
+            <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-mono font-black uppercase border border-primary/20 shadow-[0_0_10px_rgba(var(--color-primary-rgb),0.1)]">
+              Spread: {data.spread.toFixed(assetId.includes("JPY") ? 3 : 5)}
+            </span>
+            <span className="text-[7px] font-bold text-on-surface/20 uppercase tracking-tighter tabular-nums">Market Parity: 50.00%</span>
+          </div>
+        </div>
+
+        {/* Bids (Buys) */}
+        <div className="flex-1 flex flex-col overflow-hidden px-3 py-2">
+          {data.bids.map((bid, i) => (
+            <div 
+              key={i} 
+              onMouseEnter={() => setHoveredRow({ ...bid, side: 'bid' })}
+              onMouseLeave={() => setHoveredRow(null)}
+              className="flex justify-between items-center h-[18px] relative group/row cursor-pointer"
+            >
+              <div 
+                className={`absolute right-0 h-full transition-all duration-300 ${hoveredRow?.price === bid.price ? 'bg-secondary-container/30' : 'bg-secondary-container/10'}`}
+                style={{ width: `${(bid.total / maxTotal) * 100}%` }}
+              />
+              <span className="text-[10px] font-mono font-black text-secondary-container relative z-10 tabular-nums">{formatPrice(bid.price)}</span>
+              <span className="text-[9px] font-mono text-on-surface/40 relative z-10 tabular-nums font-bold">{bid.size.toFixed(assetId.includes("BTC") ? 4 : 2)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface AssetDetailViewProps {
   assetId: string;
   onClose: () => void;
@@ -143,6 +284,11 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
   const [slValue, setSlValue] = useState<number>(10); // default 10 pips
   const [showTradeSummary, setShowTradeSummary] = useState(false);
   const [hoveredOrder, setHoveredOrder] = useState<{ price: number; size: number; side: 'buy' | 'sell' } | null>(null);
+  const [orderType, setOrderType] = useState<'market' | 'limit' | 'stop-limit' | 'trailing'>('market');
+  const [limitPrice, setLimitPrice] = useState<number>(0);
+  const [stopPrice, setStopPrice] = useState<number>(0);
+  const [trailOffset, setTrailOffset] = useState<number>(5); // pips
+  const [riskViewMode, setRiskViewMode] = useState<'asset' | 'portfolio'>('asset');
   const [zoomRange, setZoomRange] = useState({ start: 0, end: 100 });
   const [isPanning, setIsPanning] = useState(false);
   const [activeOverlays, setActiveOverlays] = useState<string[]>(['smc', 'liquidity', 'fvg', 'volume', 'killzones']);
@@ -170,7 +316,8 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
   const { footprints, latestCVD } = useOrderFlow(assetId, timeframe);
   const { cotData, loading: loadingCOT } = useCOTData(assetId);
   const { intermarket, loading: loadingIntermarket } = useIntermarketData();
-  const { data: marketData, orderBooks } = useMarketData();
+  const { data: marketData, orderBooks: legacyOrderBooks } = useMarketData();
+  const { orderBook } = useOrderBook(assetId);
   const [sentiment, setSentiment] = useState<Sentiment | null>(null);
   const [loadingSentiment, setLoadingSentiment] = useState(false);
   const [isExecutionOpen, setIsExecutionOpen] = useState(false);
@@ -178,12 +325,11 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
   const [showConfirmModal, setShowConfirmModal] = useState<'buy' | 'sell' | null>(null);
 
   const assetData = marketData.find(a => a.id === assetId);
-  const orderBook = orderBooks[assetId];
 
   const maxOrderSize = useMemo(() => {
     if (!orderBook) return 0;
-    const allOrders = [...(orderBook.bids || []), ...(orderBook.asks || [])];
-    return Math.max(...allOrders.map(o => o[1]), 0.0001);
+    const allOrders = [...orderBook.bids, ...orderBook.asks];
+    return Math.max(...allOrders.map(o => o.size), 0.0001);
   }, [orderBook]);
 
   const mockSignals = useMemo(() => [
@@ -285,7 +431,8 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
     if (!assetId || loadingSentiment) return;
     setLoadingSentiment(true);
     try {
-      const res = await getSentiment(`${assetId} market status`, "Detailed analysis of current price action and institutional flow.");
+      const marketContext = `Asset: ${assetId}, Price: ${assetData?.price}, Volume profile intensity: strong, Institutional Flow: ${latestCVD > 0 ? 'Accumulating' : 'Distributing'}`;
+      const res = await getAssetSentiment(assetId, marketContext);
       setSentiment(res);
     } catch (e) {
       console.error("Sentiment error:", e);
@@ -500,6 +647,13 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
     ].filter(k => k.start && k.end);
   }, [visibleHistory]);
 
+  useEffect(() => {
+    if (assetData?.price && limitPrice === 0) {
+      setLimitPrice(parseFloat(assetData.price));
+      setStopPrice(parseFloat(assetData.price));
+    }
+  }, [assetData]);
+
   const portfolioVaR = useMemo(() => {
     // Simulated Monte Carlo VaR calculation
     const currentDrawdown = 2.45;
@@ -535,10 +689,20 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
       const cotString = cotData ? `Bull/Bear: ${cotData.commercials.net > 0 ? "Bull" : "Bear"} | Non-Comm Net: ${cotData.nonCommercials.net}` : "N/A";
       const intermarketString = intermarket ? `Yield10Y: ${intermarket.yield10Y} | DXY: ${intermarket.dxy}` : "N/A";
       
+      const currentKillZones = killZones.map(kz => kz.name).join(', ') || 'None active';
+      const majorLiquidity = liquidityPools.map(p => `${p.type} at ${p.price}`).join(', ') || 'Not detected';
+      const currentSentiment = sentiment ? sentiment : 'Neutral';
+
       const res = await getDeepMarketAnalysis(
         assetId, 
         assetData?.price || "Unknown", 
-        [`${assetId} current structural trend: ${assetData?.trend}`, `CVD: ${latestCVD}`],
+        [
+          `${assetId} current structural trend: ${assetData?.trend}`, 
+          `CVD: ${latestCVD}`,
+          `Kill Zones Active: ${currentKillZones}`,
+          `Detected Liquidity Pools: ${majorLiquidity}`,
+          `Current Sentiment: ${currentSentiment}`
+        ],
         cotString,
         intermarketString
       );
@@ -578,11 +742,14 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <h2 className="text-2xl font-black tracking-tighter text-on-surface">{assetId}</h2>
-                <div className={`px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase ${assetData?.trend === 'up' ? 'bg-secondary-container/10 text-secondary-container' : 'bg-tertiary-container/10 text-tertiary-container'}`}>
+                <div className={`px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase transition-all duration-500 ${assetData?.trend === 'up' ? 'bg-secondary-container/10 text-secondary-container shadow-[0_0_10px_rgba(var(--color-secondary-container-rgb),0.2)]' : 'bg-tertiary-container/10 text-tertiary-container shadow-[0_0_10px_rgba(var(--color-tertiary-container-rgb),0.2)]'}`}>
                   {assetData?.change || "0.00%"}
                 </div>
               </div>
-              <span className="text-xs text-on-surface/40 font-bold uppercase tracking-widest">Neural Market Detail · Real-Time</span>
+              <span className="text-xs text-on-surface/40 font-bold uppercase tracking-widest flex items-center gap-2">
+                <div className="w-1 h-1 bg-primary rounded-full animate-pulse" />
+                Neural Market Detail · Real-Time
+              </span>
             </div>
             
                 <div className="hidden lg:flex items-center gap-8 pl-8 border-l border-outline-variant/10">
@@ -966,7 +1133,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${showOpsHub ? 'bg-primary border-primary text-on-primary shadow-lg shadow-primary/20' : 'bg-surface-container-high/80 backdrop-blur-md border-outline-variant/20 text-on-surface/60 hover:text-on-surface'}`}
                    >
                      <Settings className={`w-3.5 h-3.5 ${showOpsHub ? 'animate-spin-slow' : ''}`} />
-                     <span className="text-[10px] font-black uppercase tracking-widest">Ops Hub</span>
+                     <span className="text-[10px] font-black uppercase tracking-widest">Visual Engine</span>
                    </button>
                    
                    <AnimatePresence>
@@ -975,31 +1142,49 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                         initial={{ opacity: 0, scale: 0.95, y: 10 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                        className="absolute top-10 right-0 w-48 bg-surface-container-highest/95 backdrop-blur-xl border border-outline-variant/30 rounded-xl p-3 shadow-2xl z-50 mt-2"
+                        className="absolute top-10 right-0 w-56 bg-surface-container-highest/95 backdrop-blur-xl border border-outline-variant/30 rounded-xl p-4 shadow-2xl z-50 mt-2"
                         onClick={(e) => e.stopPropagation()}
                        >
-                         <h4 className="text-[9px] font-black uppercase tracking-widest text-primary mb-3">Nexus Visual Engine</h4>
-                         <div className="space-y-1">
-                           {[
-                             { id: 'smc', label: 'Nexus SMC', icon: Layers },
-                             { id: 'liquidity', label: 'Liquidity Pools', icon: Waves },
-                             { id: 'fvg', label: 'FVG Detection', icon: Activity },
-                             { id: 'volume', label: 'Volume Profile', icon: BarChart3 },
-                             { id: 'killzones', label: 'Kill Zones', icon: Clock },
-                           ].map(ov => (
-                             <button
-                              key={ov.id}
-                              onClick={() => setActiveOverlays(prev => prev.includes(ov.id) ? prev.filter(x => x !== ov.id) : [...prev, ov.id])}
-                              className={`w-full flex items-center justify-between px-2 py-1.5 rounded transition-all ${activeOverlays.includes(ov.id) ? 'bg-primary/10 text-primary' : 'text-on-surface/40 hover:bg-surface-container-high hover:text-on-surface/60'}`}
+                         <div className="flex items-center justify-between mb-4 pb-2 border-b border-outline-variant/10">
+                            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Nexus Visual Engine</h4>
+                            <div className="flex items-center gap-1.5">
+                               <div className="w-1.5 h-1.5 bg-secondary-container rounded-full animate-pulse shadow-[0_0_8px_var(--color-secondary-container)]" />
+                               <span className="text-[7px] font-black text-on-surface/40 uppercase">System V2.4</span>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            {[
+                              { id: 'smc', label: 'SMC Markers', icon: Layers },
+                              { id: 'liquidity', label: 'Liquidity Pools', icon: Waves },
+                              { id: 'fvg', label: 'FVG Detection', icon: Activity },
+                              { id: 'volume', label: 'Volume Profile', icon: BarChart3 },
+                              { id: 'killzones', label: 'Kill Zones', icon: Clock },
+                            ].map(ov => (
+                              <button
+                               key={ov.id}
+                               onClick={() => setActiveOverlays(prev => prev.includes(ov.id) ? prev.filter(x => x !== ov.id) : [...prev, ov.id])}
+                               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all border ${activeOverlays.includes(ov.id) ? 'bg-primary/10 text-primary border-primary/20 shadow-[0_0_15px_rgba(var(--color-primary-rgb),0.1)]' : 'text-on-surface/40 hover:bg-surface-container-high hover:text-on-surface/60 border-transparent'}`}
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <ov.icon className="w-3.5 h-3.5" />
+                                  <span className="text-[10px] font-bold uppercase tracking-tight">{ov.label}</span>
+                                </div>
+                                {activeOverlays.includes(ov.id) ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-on-surface/20" />}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-4 pt-3 border-t border-outline-variant/10 flex items-center justify-between">
+                             <div className="flex flex-col">
+                               <span className="text-[7px] font-black uppercase text-on-surface/20 font-mono">Neural Sync</span>
+                               <span className="text-[8px] font-bold text-secondary-container uppercase">High Alpha</span>
+                             </div>
+                             <button 
+                               onClick={() => setActiveOverlays(['smc', 'liquidity', 'fvg', 'volume', 'killzones'])} 
+                               className="px-2 py-1 bg-surface-container-highest rounded text-[8px] font-black uppercase text-primary hover:bg-primary/10 transition-colors border border-outline-variant/10"
                              >
-                               <div className="flex items-center gap-2">
-                                 <ov.icon className="w-3 h-3" />
-                                 <span className="text-[9px] font-bold uppercase">{ov.label}</span>
-                               </div>
-                               {activeOverlays.includes(ov.id) ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3 text-on-surface/20" />}
+                               Reset Engine
                              </button>
-                           ))}
-                         </div>
+                          </div>
                        </motion.div>
                      )}
                    </AnimatePresence>
@@ -1286,23 +1471,28 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                           cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" 
                           strokeDasharray={251.2}
                           animate={{ strokeDashoffset: sentiment === 'positive' ? 62.8 : sentiment === 'negative' ? 188.4 : 125.6 }}
-                          className={sentiment === 'positive' ? 'text-secondary-container' : sentiment === 'negative' ? 'text-tertiary-container' : 'text-primary/60'}
+                          className={sentiment === 'positive' ? 'text-secondary-container shadow-[0_0_12px_rgba(56,189,248,0.4)]' : sentiment === 'negative' ? 'text-tertiary-container shadow-[0_0_12px_rgba(244,63,94,0.4)]' : 'text-primary/60'}
                         />
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
                         {loadingSentiment ? <Loader2 className="w-4 h-4 animate-spin text-primary" /> : (
-                          <span className="text-[10px] font-black uppercase tracking-tighter">
-                            {sentiment === 'positive' ? 'Strong' : sentiment === 'negative' ? 'Weak' : 'Neutral'}
-                          </span>
+                          <div className="text-center">
+                            <span className={`text-[10px] font-black uppercase tracking-tighter block ${sentiment === 'positive' ? 'text-secondary-container' : sentiment === 'negative' ? 'text-tertiary-container' : 'text-on-surface/40'}`}>
+                              {sentiment === 'positive' ? 'Bullish' : sentiment === 'negative' ? 'Bearish' : 'Neutral'}
+                            </span>
+                            <span className="text-[6px] font-black text-on-surface/20 uppercase tracking-widest">Bias</span>
+                          </div>
                         )}
                       </div>
                     </div>
                     <div className="flex-1 space-y-3">
-                      <p className="text-[11px] leading-relaxed text-on-surface/60 italic">
-                        {sentiment === 'positive' ? "High conviction institutional accumulation detected in secondary liquidity pools." : 
-                         sentiment === 'negative' ? "Aggressive distribution phase initiated by major stakeholders. Caution advised." :
-                         "Market parity reached. Waiting for macro-economic catalysts to break current consolidation ranges."}
-                      </p>
+                      <div className={`p-4 rounded-xl border transition-all duration-500 ${sentiment === 'positive' ? 'bg-secondary-container/5 border-secondary-container/20 shadow-[0_0_20px_rgba(56,189,248,0.05)]' : sentiment === 'negative' ? 'bg-tertiary-container/5 border-tertiary-container/20 shadow-[0_0_20px_rgba(244,63,94,0.05)]' : 'bg-surface-container-high/40 border-outline-variant/10'}`}>
+                        <p className={`text-[11px] leading-relaxed italic ${sentiment === 'positive' ? 'text-secondary-container/90' : sentiment === 'negative' ? 'text-tertiary-container/90' : 'text-on-surface/60'}`}>
+                          {sentiment === 'positive' ? "High conviction institutional accumulation detected in secondary liquidity pools. Market indicators align for aggressive momentum expansion." : 
+                           sentiment === 'negative' ? "Aggressive distribution phase initiated by major stakeholders. Significant sell-side pressure building across all macro timeframes." :
+                           "Market parity reached. Neural buffers suggest an impending volatility break as orders cluster at range extremities."}
+                        </p>
+                      </div>
                       <div className="flex items-center gap-4 text-[10px] font-bold text-primary uppercase">
                         <button 
                           onClick={fetchSentimentManual}
@@ -1365,32 +1555,116 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                   <div className="bg-surface-container-lowest/30 p-6 rounded-xl border border-outline-variant/10">
                     <div className="flex items-center justify-between mb-6">
                       <div className="flex items-center gap-2">
-                        <Activity className="w-4 h-4 text-primary" />
-                        <h4 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">Volatility Matrix</h4>
-                        {volatility > 15 && <span className="px-1.5 py-0.5 bg-error/10 text-error text-[8px] font-black rounded-sm animate-pulse">HIGH REGIME</span>}
+                        <ShieldCheck className="w-4 h-4 text-primary" />
+                        <h4 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">Risk Monitoring Dashboard</h4>
+                      </div>
+                      <div className="flex bg-surface-container-high rounded p-0.5 gap-1">
+                        {(['asset', 'portfolio'] as const).map(m => (
+                          <button
+                            key={m}
+                            onClick={() => setRiskViewMode(m)}
+                            className={`px-3 py-1 text-[9px] font-black uppercase rounded transition-all ${riskViewMode === m ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface/40 hover:text-on-surface'}`}
+                          >
+                            {m === 'asset' ? 'Per-Asset' : 'Portfolio'}
+                          </button>
+                        ))}
                       </div>
                     </div>
+                    
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="p-3 rounded-lg bg-surface-container-high/40 border border-outline-variant/10">
-                        <p className="text-[8px] font-black text-on-surface/30 uppercase mb-2">Neural Dispersion</p>
-                        <p className={`text-xl font-mono font-black ${volatility > 12 ? 'text-tertiary-container' : 'text-primary'}`}>{volScore.toFixed(2)}%</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-surface-container-high/40 border border-outline-variant/10">
-                        <p className="text-[8px] font-black text-on-surface/30 uppercase mb-2">Market Intensity</p>
-                        <p className="text-xl font-mono font-black text-on-surface">{(volatility * 0.8).toFixed(1)}<span className="text-[10px] ml-1">σ</span></p>
-                      </div>
-                      <div className="col-span-2 space-y-2">
-                        <div className="flex justify-between items-center text-[9px] font-bold uppercase text-on-surface/40">
-                          <span>Real-time Risk Regime</span>
-                          <span>{volatility > 15 ? 'Aggressive' : 'Stable'}</span>
+                      <div className="p-4 rounded-xl bg-surface-container-high/40 border border-outline-variant/10 group hover:border-primary/20 transition-all">
+                        <div className="flex justify-between items-start mb-2">
+                          <p className="text-[8px] font-black text-on-surface/30 uppercase">Drawdown</p>
+                          <TrendingDown className="w-3.5 h-3.5 text-tertiary-container" />
                         </div>
-                        <div className="w-full h-1 bg-surface-container-highest rounded-full overflow-hidden">
-                           <motion.div 
-                              animate={{ width: `${Math.min(100, volatility * 6)}%`, backgroundColor: volatility > 15 ? 'var(--color-error)' : 'var(--color-secondary-container)' }}
-                              className="h-full"
-                           />
+                        <p className={`text-xl font-mono font-black ${portfolioVaR.currentDrawdown > 3 ? 'text-tertiary-container animate-pulse' : 'text-primary'}`}>
+                          {riskViewMode === 'asset' ? (portfolioVaR.currentDrawdown * 0.4).toFixed(2) : portfolioVaR.currentDrawdown.toFixed(2)}%
+                        </p>
+                        <div className="w-full h-1 bg-surface-container-highest rounded-full mt-3 overflow-hidden">
+                          <motion.div 
+                            animate={{ width: `${(portfolioVaR.currentDrawdown / portfolioVaR.peakDrawdownLimit) * 100}%` }}
+                            className="h-full bg-tertiary-container shadow-[0_0_8px_var(--color-tertiary-container)]"
+                          />
                         </div>
                       </div>
+
+                      <div className="p-4 rounded-xl bg-surface-container-high/40 border border-outline-variant/10 group hover:border-primary/20 transition-all">
+                        <div className="flex justify-between items-start mb-2">
+                          <p className="text-[8px] font-black text-on-surface/30 uppercase">Margin Utilization</p>
+                          <Activity className="w-3.5 h-3.5 text-secondary-container" />
+                        </div>
+                        <p className="text-xl font-mono font-black text-on-surface">
+                          {riskViewMode === 'asset' ? '12.4' : '48.2'}%
+                        </p>
+                        <div className="w-full h-1 bg-surface-container-highest rounded-full mt-3 overflow-hidden">
+                          <motion.div 
+                            animate={{ width: riskViewMode === 'asset' ? '12.4%' : '48.2%' }}
+                            className="h-full bg-secondary-container"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-xl bg-surface-container-high/40 border border-outline-variant/10 group hover:border-primary/20 transition-all">
+                        <div className="flex justify-between items-start mb-2">
+                          <p className="text-[8px] font-black text-on-surface/30 uppercase">Relative Leverage</p>
+                          <Zap className="w-3.5 h-3.5 text-primary" />
+                        </div>
+                        <p className="text-xl font-mono font-black text-on-surface">
+                          {riskViewMode === 'asset' ? leverage : (leverage * 0.8).toFixed(1)}x
+                        </p>
+                        <div className="w-full h-1 bg-surface-container-highest rounded-full mt-3 overflow-hidden">
+                          <motion.div 
+                            animate={{ width: `${Math.min((leverage / 100) * 100, 100)}%` }}
+                            className={`h-full ${leverage > 50 ? 'bg-tertiary-container' : 'bg-primary'}`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="col-span-2 p-4 rounded-xl bg-surface-container-high/40 border border-outline-variant/10">
+                        <p className="text-[8px] font-black text-on-surface/30 uppercase mb-3">Leverage P&L Impact Analysis</p>
+                        <div className="space-y-3">
+                          {[
+                            { label: 'Normalized Delta', val: riskViewMode === 'asset' ? '0.82' : '4.15', color: 'text-on-surface' },
+                            { label: 'Gamma Exposure', val: riskViewMode === 'asset' ? '0.14' : '1.24', color: 'text-on-surface' },
+                            { label: 'Theta Decay (Daily)', val: riskViewMode === 'asset' ? '-$12.50' : '-$84.20', color: 'text-tertiary-container' }
+                          ].map((item, i) => (
+                            <div key={i} className="flex justify-between items-center text-[10px]">
+                              <span className="font-bold text-on-surface/40 uppercase tracking-tighter">{item.label}</span>
+                              <span className={`font-mono font-black ${item.color}`}>{item.val}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-surface-container-lowest/30 p-6 rounded-xl border border-outline-variant/10">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-primary" />
+                        <h4 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">Real-Time Order Book</h4>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 bg-secondary-container rounded-full animate-pulse shadow-[0_0_8px_var(--color-secondary-container)]" />
+                        <span className="text-[8px] font-bold text-on-surface/40 uppercase">Live L2 Data</span>
+                      </div>
+                    </div>
+                    <div className="h-[320px]">
+                      <OrderBookVisualizer data={orderBook} assetId={assetId} />
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-4">
+                       <div className="p-3 rounded-lg bg-surface-container-high/40 border border-outline-variant/10">
+                          <span className="text-[7px] font-black text-on-surface/30 uppercase block mb-1">Buy Side Liquidity</span>
+                          <span className="text-xs font-mono font-black text-secondary-container">
+                            {orderBook?.bids.reduce((acc, b) => acc + b.size, 0).toFixed(2) || '---'}
+                          </span>
+                       </div>
+                       <div className="p-3 rounded-lg bg-surface-container-high/40 border border-outline-variant/10">
+                          <span className="text-[7px] font-black text-on-surface/30 uppercase block mb-1">Sell Side Liquidity</span>
+                          <span className="text-xs font-mono font-black text-tertiary-container">
+                            {orderBook?.asks.reduce((acc, a) => acc + a.size, 0).toFixed(2) || '---'}
+                          </span>
+                       </div>
                     </div>
                   </div>
 
@@ -1657,7 +1931,108 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                     </div>
                     
                     {portfolioTab === 'risk' ? (
-                      <>
+                      <div className="space-y-6">
+                        {/* Order Type Selection */}
+                        <div className="space-y-3">
+                          <label className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest block">Execution Strategy</label>
+                          <div className="grid grid-cols-2 gap-2">
+                             {(['market', 'limit', 'stop-limit', 'trailing'] as const).map(type => (
+                               <button
+                                 key={type}
+                                 onClick={() => setOrderType(type)}
+                                 className={`py-2 px-3 text-[9px] font-black uppercase rounded border transition-all ${orderType === type ? 'bg-primary/10 border-primary text-primary shadow-[0_0_12px_rgba(var(--color-primary-rgb),0.1)]' : 'bg-surface-container-low border-outline-variant/10 text-on-surface/40 hover:text-on-surface'}`}
+                               >
+                                 {type.replace('-', ' ')}
+                               </button>
+                             ))}
+                          </div>
+                        </div>
+
+                        {/* Limit / Stop Price Fields */}
+                        <AnimatePresence mode="wait">
+                          {(orderType === 'limit' || orderType === 'stop-limit') && (
+                            <motion.div 
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="grid grid-cols-2 gap-4 overflow-hidden"
+                            >
+                               {orderType === 'limit' && (
+                                 <div className="col-span-2">
+                                   <label className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest mb-2 block">Limit Price</label>
+                                   <div className="flex bg-surface-container-low border border-outline-variant/20 rounded overflow-hidden focus-within:border-primary transition-colors">
+                                     <button 
+                                       onClick={() => setLimitPrice(prev => Math.max(0, prev - (assetId.includes("JPY") ? 0.01 : 0.0001)))}
+                                       className="px-3 hover:bg-surface-container-high text-on-surface/40 hover:text-on-surface transition-colors"
+                                     >-</button>
+                                     <input 
+                                       type="number" 
+                                       value={limitPrice}
+                                       onChange={(e) => setLimitPrice(parseFloat(e.target.value) || 0)}
+                                       className="flex-1 bg-transparent px-3 py-2 text-sm font-mono font-bold outline-none text-center"
+                                     />
+                                     <button 
+                                       onClick={() => setLimitPrice(prev => prev + (assetId.includes("JPY") ? 0.01 : 0.0001))}
+                                       className="px-3 hover:bg-surface-container-high text-on-surface/40 hover:text-on-surface transition-colors"
+                                     >+</button>
+                                   </div>
+                                 </div>
+                               )}
+                               {orderType === 'stop-limit' && (
+                                 <>
+                                   <div>
+                                     <label className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest mb-2 block">Stop Price</label>
+                                     <div className="flex bg-surface-container-low border border-outline-variant/20 rounded overflow-hidden focus-within:border-primary transition-colors">
+                                       <button onClick={() => setStopPrice(prev => Math.max(0, prev - 0.1))} className="px-2 hover:bg-surface-container-high opacity-40">-</button>
+                                       <input 
+                                         type="number" 
+                                         value={stopPrice}
+                                         onChange={(e) => setStopPrice(parseFloat(e.target.value) || 0)}
+                                         className="w-full bg-transparent px-2 py-2 text-xs font-mono font-bold outline-none text-center"
+                                       />
+                                       <button onClick={() => setStopPrice(prev => prev + 0.1)} className="px-2 hover:bg-surface-container-high opacity-40">+</button>
+                                     </div>
+                                   </div>
+                                   <div>
+                                     <label className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest mb-2 block">Limit Price</label>
+                                     <div className="flex bg-surface-container-low border border-outline-variant/20 rounded overflow-hidden focus-within:border-primary transition-colors">
+                                        <button onClick={() => setLimitPrice(prev => Math.max(0, prev - 0.1))} className="px-2 hover:bg-surface-container-high opacity-40">-</button>
+                                        <input 
+                                          type="number" 
+                                          value={limitPrice}
+                                          onChange={(e) => setLimitPrice(parseFloat(e.target.value) || 0)}
+                                          className="w-full bg-transparent px-2 py-2 text-xs font-mono font-bold outline-none text-center"
+                                        />
+                                        <button onClick={() => setLimitPrice(prev => prev + 0.1)} className="px-2 hover:bg-surface-container-high opacity-40">+</button>
+                                     </div>
+                                   </div>
+                                 </>
+                               )}
+                            </motion.div>
+                          )}
+                          {orderType === 'trailing' && (
+                            <motion.div 
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="space-y-2 overflow-hidden"
+                            >
+                               <label className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest mb-2 block">Trailing Offset (Pips)</label>
+                               <div className="flex items-center gap-4">
+                                 <input 
+                                   type="range" 
+                                   min="1" 
+                                   max="50" 
+                                   value={trailOffset}
+                                   onChange={(e) => setTrailOffset(parseInt(e.target.value))}
+                                   className="flex-1 h-1 bg-surface-container-highest rounded-lg appearance-none cursor-pointer accent-primary"
+                                 />
+                                 <span className="text-xs font-mono font-black text-primary w-8 text-right">{trailOffset}</span>
+                               </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+
                         <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest mb-2 block">Risk %</label>
@@ -1706,7 +2081,7 @@ export function AssetDetailView({ assetId, onClose, onNavigateToHistory }: Asset
                         />
                       </div>
                     </div>
-                  </>
+                    </div>
                 ) : (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="grid grid-cols-2 gap-4">

@@ -17,10 +17,11 @@ import {
 
 interface StrategyBlock {
   id: string;
-  type: 'indicator' | 'logic' | 'action';
+  type: 'indicator' | 'logic' | 'action' | 'risk' | 'execution';
   name: string;
   params: Record<string, any>;
   linkedParams?: Record<string, string>; // paramName -> sourceBlockId
+  rules?: { id: string; condition: string; action: string }[];
 }
 
 const AVAILABLE_BLOCKS = {
@@ -40,6 +41,20 @@ const AVAILABLE_BLOCKS = {
     { name: "AND", params: {} },
     { name: "OR", params: {} },
   ],
+  risk: [
+    { name: "Hard Stop Loss", params: { pips: 30 } },
+    { name: "Take Profit Target", params: { pips: 60 } },
+    { name: "Break Even Lock", params: { trigger: 20, buffer: 2 } },
+    { name: "Trailing Neural Stop", params: { dist: 15, step: 2 } },
+    { name: "Daily Loss Limit", params: { threshold: 5 } },
+  ],
+  execution: [
+    { name: "Fixed Lot Size", params: { lots: 0.1 } },
+    { name: "Risk % Scaling", params: { pct: 1 } },
+    { name: "Limit Aggregator", params: { range: 10, count: 3 } },
+    { name: "Time-Window Filter", params: { start: 8, duration: 8 } },
+    { name: "Market Pressure Exec", params: { slippage: 0.5 } },
+  ],
   action: [
     { name: "Exec Alpha Buy", params: { lotSize: 0.1 } },
     { name: "Exec Alpha Sell", params: { lotSize: 0.1 } },
@@ -51,7 +66,30 @@ const AVAILABLE_BLOCKS = {
 export function StrategyBuilder({ onClose }: { onClose: () => void }) {
   const [strategyName, setStrategyName] = useState("New Alpha Strategy");
   const [blocks, setBlocks] = useState<StrategyBlock[]>([]);
-  const [activeCategory, setActiveCategory] = useState<'indicator' | 'logic' | 'action'>('indicator');
+  const [activeCategory, setActiveCategory] = useState<'indicator' | 'logic' | 'action' | 'risk' | 'execution'>('indicator');
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+
+  useState(() => {
+    const saved = localStorage.getItem("nexus-active-strategy");
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        setBlocks(data.blocks || []);
+        setStrategyName(data.name || "New Alpha Strategy");
+      } catch (e) {
+        console.error("Strategy load failure", e);
+      }
+    }
+  });
+
+  const saveStrategy = () => {
+    const payload = {
+      name: strategyName,
+      blocks,
+      updatedAt: new Date().toISOString()
+    };
+    localStorage.setItem("nexus-active-strategy", JSON.stringify(payload));
+  };
 
   const addBlock = (block: any) => {
     const newBlock: StrategyBlock = {
@@ -123,7 +161,10 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
               <Play className="w-4 h-4" />
               Test
             </button>
-            <button className="flex items-center gap-2 px-6 py-2 bg-primary text-on-primary text-xs font-bold uppercase tracking-widest rounded hover:bg-primary/90 transition-all">
+            <button 
+              onClick={saveStrategy}
+              className="flex items-center gap-2 px-6 py-2 bg-primary text-on-primary text-xs font-bold uppercase tracking-widest rounded hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+            >
               <Save className="w-4 h-4" />
               Save Strategy
             </button>
@@ -138,19 +179,19 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
 
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar - Block Library */}
-          <div className="w-72 border-r border-outline-variant/10 flex flex-col bg-surface-container-lowest/50">
-            <div className="p-4 flex gap-1 border-b border-outline-variant/10">
-              {(['indicator', 'logic', 'action'] as const).map((cat) => (
+          <div className="w-80 border-r border-outline-variant/10 flex flex-col bg-surface-container-lowest/50 shrink-0">
+            <div className="p-2 grid grid-cols-3 gap-1 border-b border-outline-variant/10">
+              {(['indicator', 'logic', 'risk', 'execution', 'action'] as const).map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`flex-1 py-2 text-[9px] uppercase tracking-widest font-bold rounded transition-all ${
+                  className={`py-1.5 text-[8px] uppercase tracking-widest font-bold rounded transition-all ${
                     activeCategory === cat 
                       ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' 
                       : 'text-on-surface-variant hover:bg-surface-container-highest'
                   }`}
                 >
-                  {cat}s
+                  {cat === 'execution' ? 'Exec' : cat}
                 </button>
               ))}
             </div>
@@ -183,28 +224,45 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
           {/* Main Workspace */}
           <div className="flex-1 overflow-y-auto p-8 bg-surface-container-low/30 relative" id="strategy-workspace">
              <svg className="absolute inset-0 pointer-events-none z-0 overflow-visible w-full h-full">
-                {blocks.map(block => 
+                {blocks.map((block, targetIndex) => 
                   Object.entries(block.linkedParams || {}).map(([param, sourceId]) => {
                     if (!sourceId) return null;
                     const sourceIndex = blocks.findIndex(b => b.id === sourceId);
-                    const targetIndex = blocks.findIndex(b => b.id === block.id);
-                    if (sourceIndex === -1 || targetIndex === -1) return null;
+                    if (sourceIndex === -1) return null;
 
-                    // This is a simplified vertical connection line logic
-                    // In a real nodal editor we'd use getBoundingClientRect, 
-                    // but for this vertical flow we can visualize it as a side-path
+                    const startX = 400; // mid-ish
+                    const startY = sourceIndex * 200 + 100;
+                    const endX = 400;
+                    const endY = targetIndex * 200 + 120;
+
+                    const controlPointX = startX - 200;
+
                     return (
-                      <motion.path
-                        key={`${block.id}-${param}-${sourceId}`}
-                        initial={{ pathLength: 0, opacity: 0 }}
-                        animate={{ pathLength: 1, opacity: 1 }}
-                        d={`M 100 ${sourceIndex * 180 + 100} Q 40 ${(sourceIndex + targetIndex) / 2 * 180 + 100} 100 ${targetIndex * 180 + 120}`}
-                        stroke="var(--color-primary)"
-                        strokeWidth="1"
-                        fill="none"
-                        strokeDasharray="4 4"
-                        className="opacity-20"
-                      />
+                      <g key={`${block.id}-${param}-${sourceId}`}>
+                        <motion.path
+                          initial={{ pathLength: 0, opacity: 0 }}
+                          animate={{ pathLength: 1, opacity: 1 }}
+                          transition={{ duration: 1, ease: "easeInOut" }}
+                          d={`M ${startX} ${startY} C ${controlPointX} ${startY}, ${controlPointX} ${endY}, ${endX} ${endY}`}
+                          stroke="var(--color-primary)"
+                          strokeWidth="1.5"
+                          fill="none"
+                          strokeDasharray="5 5"
+                          className="opacity-40"
+                        />
+                        <motion.circle 
+                          r="3" 
+                          fill="var(--color-primary)"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                        >
+                          <animateMotion 
+                            dur="3s" 
+                            repeatCount="indefinity" 
+                            path={`M ${startX} ${startY} C ${controlPointX} ${startY}, ${controlPointX} ${endY}, ${endX} ${endY}`} 
+                          />
+                        </motion.circle>
+                      </g>
                     );
                   })
                 )}
@@ -234,11 +292,18 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
                         <div className="w-1.5 h-1.5 bg-primary rounded-full -translate-x-[0.5px]" />
                       </div>
                     )}
-                    <div className={`p-5 rounded-xl border flex items-center gap-6 transition-all ${
-                      block.type === 'indicator' ? 'bg-surface-container-highest/40 border-primary/20' :
-                      block.type === 'logic' ? 'bg-surface-container-highest/60 border-secondary-container/20' :
-                      'bg-surface-container-highest/80 border-tertiary-container/20 shadow-lg shadow-tertiary-container/5'
-                    }`}>
+                    <div 
+                      onClick={() => setSelectedBlockId(block.id)}
+                      className={`p-5 rounded-xl border flex items-center gap-6 transition-all cursor-pointer ${
+                        selectedBlockId === block.id ? 'ring-2 ring-primary ring-offset-4 ring-offset-surface-container-low' : ''
+                      } ${
+                        block.type === 'indicator' ? 'bg-surface-container-highest/40 border-primary/20' :
+                        block.type === 'logic' ? 'bg-surface-container-highest/60 border-secondary-container/20' :
+                        block.type === 'risk' ? 'bg-error/5 border-error/20' :
+                        block.type === 'execution' ? 'bg-primary/5 border-primary/20' :
+                        'bg-surface-container-highest/80 border-tertiary-container/20 shadow-lg shadow-tertiary-container/5'
+                      }`}
+                    >
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                         block.type === 'indicator' ? 'bg-primary/10 text-primary' :
                         block.type === 'logic' ? 'bg-secondary-container/10 text-secondary-container' :
@@ -348,17 +413,17 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
             )}
           </div>
 
-          {/* Right Panel - Summary/Preview */}
-          <div className="w-80 border-l border-outline-variant/10 flex flex-col bg-surface-container-lowest/50">
+          {/* Right Panel - Summary/Preview & Control Rules */}
+          <div className="w-85 border-l border-outline-variant/10 flex flex-col bg-surface-container-lowest/50 shrink-0 overflow-y-auto">
             <div className="p-6 border-b border-outline-variant/10">
               <h3 className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-primary" />
-                Strategy Logic
+                Strategy Logic Pulse
               </h3>
               <div className="space-y-4">
                 <div className="p-4 bg-surface-container-low rounded-lg border border-outline-variant/10">
-                  <p className="text-[10px] text-on-surface-variant uppercase font-bold mb-2">Generated Pseudo-code</p>
-                  <pre className="text-[10px] font-mono text-primary leading-relaxed overflow-x-auto">
+                  <p className="text-[10px] text-on-surface-variant uppercase font-bold mb-2">Neural Code Stream</p>
+                  <pre className="text-[10px] font-mono text-primary leading-relaxed overflow-x-auto whitespace-pre-wrap">
                     {blocks.length === 0 ? '// No logic defined' : (
                       blocks.map(b => {
                         const paramsStr = Object.entries(b.params).map(([k, v]) => {
@@ -372,6 +437,8 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
 
                         if (b.type === 'indicator') return `IF ${b.name}(${paramsStr})`;
                         if (b.type === 'logic') return `  ${b.name}`;
+                        if (b.type === 'risk') return `GUARD ${b.name}(${paramsStr})`;
+                        if (b.type === 'execution') return `HANDLE ${b.name}(${paramsStr})`;
                         return `THEN ${b.name}`;
                       }).join('\n')
                     )}
@@ -379,6 +446,50 @@ export function StrategyBuilder({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             </div>
+
+            {/* Signal Rules Configuration Section */}
+            <div className="p-6 border-b border-outline-variant/10">
+               <h3 className="text-xs font-bold uppercase tracking-widest mb-4 flex items-center gap-2 text-primary">
+                <Settings2 className="w-4 h-4" />
+                Signal Rules & Invariants
+              </h3>
+              {selectedBlockId ? (
+                <div className="space-y-4">
+                  <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                    <p className="text-[10px] font-black uppercase text-primary mb-2">Active: {blocks.find(b => b.id === selectedBlockId)?.name}</p>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[8px] font-bold uppercase text-on-surface-variant mb-1 block">Dynamic Conditioning</label>
+                        <select className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded px-2 py-1.5 text-[10px] outline-none">
+                          <option>Link: Proportional Volatility</option>
+                          <option>Override: Global Circuit Breaker</option>
+                          <option>Condition: High Liquidity Only</option>
+                        </select>
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="flex-1 py-2 bg-primary/10 text-primary text-[9px] font-black uppercase rounded hover:bg-primary/20">Add Rule</button>
+                        <button className="flex-1 py-2 bg-on-surface-variant/10 text-on-surface-variant text-[9px] font-black uppercase rounded">Clear all</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="p-2 border border-outline-variant/10 rounded flex items-center justify-between group">
+                       <span className="text-[9px] font-medium text-on-surface/60 italic">If Volatility &gt; 2.5 SD, multiply SL by 1.5x</span>
+                       <X className="w-3 h-3 text-on-surface/20 group-hover:text-error cursor-pointer" />
+                    </div>
+                    <div className="p-2 border border-outline-variant/10 rounded flex items-center justify-between group">
+                       <span className="text-[9px] font-medium text-on-surface/60 italic">Override lotSize if Drawdown &gt; 2%</span>
+                       <X className="w-3 h-3 text-on-surface/20 group-hover:text-error cursor-pointer" />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-8 text-center border border-dashed border-outline-variant/20 rounded-lg">
+                  <p className="text-[9px] uppercase tracking-widest text-on-surface/30 font-bold">Select a block to configure signals</p>
+                </div>
+              )}
+            </div>
+
             <div className="p-6 flex-1">
               <h3 className="text-xs font-bold uppercase tracking-widest mb-4">Performance Metrics</h3>
               <div className="space-y-3">
