@@ -59,47 +59,27 @@ function AppContent() {
           <AnimatePresence mode="wait">
             <Routes location={location} key={location.pathname}>
               <Route path="/" element={
-                <motion.div
-                  className="h-full"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                >
+                <motion.div className="h-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                   <Dashboard onSelectAsset={setSelectedAssetDetail} />
                 </motion.div>
               } />
               <Route path="/markets" element={
-                <motion.div
-                  className="h-full overflow-y-auto p-6"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                >
+                <motion.div className="h-full overflow-y-auto p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                   <Markets onSelectAsset={setSelectedAssetDetail} />
                 </motion.div>
               } />
               <Route path="/alerts" element={
-                <motion.div
-                  className="h-full overflow-y-auto p-6"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                >
+                <motion.div className="h-full overflow-y-auto p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                   <Alerts />
                 </motion.div>
               } />
               <Route path="/history" element={
-                <motion.div
-                  className="h-full overflow-y-auto p-6"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                >
+                <motion.div className="h-full overflow-y-auto p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                   <History filterAsset={historyFilter} onClearFilter={() => setHistoryFilter(null)} />
                 </motion.div>
               } />
               <Route path="/config" element={
-                <motion.div
-                  className="h-full overflow-y-auto p-6"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                >
+                <motion.div className="h-full overflow-y-auto p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                   <Config />
                 </motion.div>
               } />
