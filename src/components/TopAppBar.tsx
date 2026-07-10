@@ -111,7 +111,9 @@ export function TopAppBar({ onSearchSelect }: TopAppBarProps) {
         <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-sm bg-surface-container-low border border-outline-variant/10">
           <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-secondary-container shadow-[0_0_8px_#00b954]' : 'bg-tertiary-container shadow-[0_0_8px_#ff4d4d]'} transition-all duration-500`} />
           <span className="font-sans text-[10px] font-bold tracking-widest text-on-surface/60 uppercase">
-            {isConnected ? 'LIVE FEED ACTIVE' : 'RECONNECTING...'}
+            {isConnected
+              ? `LIVE FEED · ${marketData.filter(a => a.live).length}/${marketData.length} REAL`
+              : 'RECONNECTING...'}
           </span>
           {isConnected ? <Wifi className="w-3 h-3 text-secondary-container ml-1" /> : <WifiOff className="w-3 h-3 text-tertiary-container ml-1" />}
         </div>

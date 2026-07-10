@@ -6,6 +6,12 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import {
+  fetchLiveQuotes,
+  fetchHistory,
+  hasLiveProvider,
+  activeProviderName,
+} from "./marketFeed.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,43 +33,108 @@ async function startServer() {
   const wss = new WebSocketServer({ server });
   const PORT = 3000;
 
-  // Mock Market Data Generator
-  const assets = [
-    { id: "XAU/USD", price: 2642.12, initialPrice: 2642.12, volatility: 0.0004, bias: 0.00005, history: [] as { time: string; price: number }[], isRealTime: true },
-    { id: "EUR/USD", price: 1.09421, initialPrice: 1.09421, volatility: 0.0001, bias: -0.00001, history: [] as { time: string; price: number }[] },
-    { id: "BTC/USD", price: 74281.50, initialPrice: 74281.50, volatility: 0.0015, bias: 0.0002, history: [] as { time: string; price: number }[], isRealTime: true },
-    { id: "GBP/JPY", price: 201.125, initialPrice: 201.125, volatility: 0.0003, bias: 0.00002, history: [] as { time: string; price: number }[] },
-    { id: "ETH/USD", price: 3842.15, initialPrice: 3842.15, volatility: 0.0012, bias: 0.00015, history: [] as { time: string; price: number }[], isRealTime: true },
-    { id: "USD/JPY", price: 151.42, initialPrice: 151.42, volatility: 0.0002, bias: -0.00003, history: [] as { time: string; price: number }[] },
-    { id: "AUD/USD", price: 0.6642, initialPrice: 0.6642, volatility: 0.00015, bias: 0.00001, history: [] as { time: string; price: number }[] },
-    { id: "XAG/USD", price: 31.42, initialPrice: 31.42, volatility: 0.0008, bias: 0.00008, history: [] as { time: string; price: number }[] },
+  // Live-provider availability determines which assets stream authentic vendor
+  // data and which fall back to clearly-labelled simulation.
+  const liveProvider = hasLiveProvider();
+  const providerName = activeProviderName();
+  console.log(
+    liveProvider
+      ? `[Market Feed] Authentic forex/metals provider active: ${providerName}`
+      : "[Market Feed] No forex/metals provider key set — FX & silver run in SIMULATION mode. " +
+          "Set TWELVE_DATA_API_KEY (or FINNHUB_API_KEY) for live quotes."
+  );
+
+  type Owner = "binance" | "provider" | "sim";
+
+  interface Asset {
+    id: string;
+    price: number;
+    initialPrice: number;
+    percentChange: number; // authoritative change % from the data source
+    volatility: number;
+    bias: number;
+    history: { time: string; price: number }[];
+    owner: Owner;
+    source: string;
+  }
+
+  // Ownership:
+  //   binance  -> real-time trade/ticker stream from Binance (crypto + gold via PAXG)
+  //   provider -> polled authentic quotes from Twelve Data / Finnhub
+  //   sim      -> local simulation (only when no provider key is configured)
+  const goldOwner: Owner = liveProvider ? "provider" : "binance";
+  const goldSource = liveProvider ? providerName : "Binance (PAXG)";
+  const fxOwner: Owner = liveProvider ? "provider" : "sim";
+  const fxSource = liveProvider ? providerName : "Simulated";
+
+  const assets: Asset[] = [
+    { id: "XAU/USD", price: 2642.12, initialPrice: 2642.12, percentChange: 0, volatility: 0.0004, bias: 0.00005, history: [], owner: goldOwner, source: goldSource },
+    { id: "EUR/USD", price: 1.09421, initialPrice: 1.09421, percentChange: 0, volatility: 0.0001, bias: -0.00001, history: [], owner: fxOwner, source: fxSource },
+    { id: "BTC/USD", price: 74281.50, initialPrice: 74281.50, percentChange: 0, volatility: 0.0015, bias: 0.0002, history: [], owner: "binance", source: "Binance" },
+    { id: "GBP/JPY", price: 201.125, initialPrice: 201.125, percentChange: 0, volatility: 0.0003, bias: 0.00002, history: [], owner: fxOwner, source: fxSource },
+    { id: "ETH/USD", price: 3842.15, initialPrice: 3842.15, percentChange: 0, volatility: 0.0012, bias: 0.00015, history: [], owner: "binance", source: "Binance" },
+    { id: "USD/JPY", price: 151.42, initialPrice: 151.42, percentChange: 0, volatility: 0.0002, bias: -0.00003, history: [], owner: fxOwner, source: fxSource },
+    { id: "AUD/USD", price: 0.6642, initialPrice: 0.6642, percentChange: 0, volatility: 0.00015, bias: 0.00001, history: [], owner: fxOwner, source: fxSource },
+    { id: "XAG/USD", price: 31.42, initialPrice: 31.42, percentChange: 0, volatility: 0.0008, bias: 0.00008, history: [], owner: liveProvider ? "provider" : "sim", source: fxSource },
   ];
 
-  // Real-time WebSocket Integration (Binance for Crypto & Gold Proxy)
+  // Symbols we ask the authentic REST provider to quote (everything not on Binance).
+  const providerSymbols = assets.filter(a => a.owner === "provider").map(a => a.id);
+
+  // Poll the vendor for real forex/metals quotes. Interval is configurable to
+  // respect provider rate limits (Twelve Data free tier ~8 credits/min).
+  const POLL_INTERVAL = Math.max(2000, parseInt(process.env.MARKET_POLL_INTERVAL_MS || "10000", 10));
+  const pollLiveQuotes = async () => {
+    if (providerSymbols.length === 0) return;
+    try {
+      const quotes = await fetchLiveQuotes(providerSymbols);
+      for (const q of quotes) {
+        const asset = assets.find(a => a.id === q.id);
+        if (asset) {
+          asset.price = q.price;
+          asset.percentChange = q.percentChange;
+          asset.source = q.source;
+        }
+      }
+    } catch (err) {
+      console.error("[Market Feed] Live quote poll failed:", err instanceof Error ? err.message : err);
+    }
+  };
+  if (providerSymbols.length > 0) {
+    pollLiveQuotes();
+    setInterval(pollLiveQuotes, POLL_INTERVAL);
+  }
+
+  // Real-time WebSocket Integration (Binance for Crypto & Gold Proxy).
+  // Uses the @ticker stream so both last price (c) and the *real* 24h percent
+  // change (P) come straight from the exchange.
   const connectToBinance = () => {
     const streams = [
-      "btcusdt@trade", "ethusdt@trade", "paxgusdt@trade",
+      "btcusdt@ticker", "ethusdt@ticker", "paxgusdt@ticker",
       "btcusdt@depth10@100ms", "ethusdt@depth10@100ms", "paxgusdt@depth10@100ms"
     ].join("/");
-    
+
     const binanceWs = new WebSocket(`wss://stream.binance.com:9443/ws/${streams}`);
-    
+
     binanceWs.on("message", (data) => {
       const msg = JSON.parse(data.toString());
-      
-      if (msg.e === "trade") {
+
+      if (msg.e === "24hrTicker") {
         const symbol = msg.s;
-        const price = parseFloat(msg.p);
-        
-        if (symbol === "BTCUSDT") {
-          const btc = assets.find(a => a.id === "BTC/USD");
-          if (btc) btc.price = price;
-        } else if (symbol === "ETHUSDT") {
-          const eth = assets.find(a => a.id === "ETH/USD");
-          if (eth) eth.price = price;
-        } else if (symbol === "PAXGUSDT") {
-          const gold = assets.find(a => a.id === "XAU/USD");
-          if (gold) gold.price = price;
+        const price = parseFloat(msg.c);        // last price
+        const percentChange = parseFloat(msg.P); // real 24h % change
+        const assetId = symbol === "BTCUSDT" ? "BTC/USD"
+          : symbol === "ETHUSDT" ? "ETH/USD"
+          : symbol === "PAXGUSDT" ? "XAU/USD" : null;
+
+        if (assetId) {
+          const asset = assets.find(a => a.id === assetId);
+          // Only apply Binance data to assets it owns (gold is provider-owned
+          // when an authentic spot provider is configured).
+          if (asset && asset.owner === "binance") {
+            asset.price = price;
+            asset.percentChange = percentChange;
+          }
         }
       } else if (msg.bids && msg.asks) {
         // Depth update
@@ -96,20 +167,26 @@ async function startServer() {
 
   connectToBinance();
 
+  // Price precision: FX majors need 5dp; JPY crosses & metals/crypto 2dp.
+  const priceDecimals = (id: string) =>
+    id.includes("JPY") ? 3 : id.includes("BTC") || id.includes("ETH") || id.includes("XAU") || id.includes("XAG") ? 2 : 5;
+
   const broadcastMarketData = () => {
     const timestamp = new Date().toISOString();
     assets.forEach((asset) => {
-      // Only simulate if not real-time
-      if (!(asset as any).isRealTime) {
+      // Only run the random walk for assets with no authentic feed (owner "sim").
+      // Binance- and provider-owned assets already hold real vendor prices.
+      if (asset.owner === "sim") {
         const randomFactor = (Math.random() - 0.5) * 2 * asset.volatility;
         const trendFactor = asset.bias || 0;
         asset.price = asset.price * (1 + randomFactor + trendFactor);
+        asset.percentChange = ((asset.price - asset.initialPrice) / asset.initialPrice) * 100;
       }
-      
+
       // Update history buffer (keep last 100 points)
-      asset.history.push({ 
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), 
-        price: parseFloat(asset.price.toFixed(5)) 
+      asset.history.push({
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        price: parseFloat(asset.price.toFixed(5))
       });
       if (asset.history.length > 100) asset.history.shift();
     });
@@ -118,12 +195,14 @@ async function startServer() {
       type: "MARKET_UPDATE",
       timestamp,
       data: assets.map(a => {
-        const percentChange = ((a.price - a.initialPrice) / a.initialPrice) * 100;
+        const percentChange = a.percentChange || 0;
         return {
           id: a.id,
-          price: a.price.toFixed(a.id.includes("USD") && !a.id.includes("BTC") && !a.id.includes("ETH") && !a.id.includes("XAG") ? 5 : 2),
+          price: a.price.toFixed(priceDecimals(a.id)),
           change: (percentChange >= 0 ? "+" : "") + percentChange.toFixed(2) + "%",
-          trend: percentChange >= 0 ? "up" : "down"
+          trend: percentChange >= 0 ? "up" : "down",
+          source: a.source,
+          live: a.owner !== "sim"
         };
       })
     });
@@ -155,12 +234,17 @@ async function startServer() {
     ws.send(JSON.stringify({
       type: "MARKET_UPDATE",
       timestamp: new Date().toISOString(),
-      data: assets.map(a => ({
-        id: a.id,
-        price: a.price.toFixed(a.id.includes("USD") && !a.id.includes("BTC") ? 5 : 2),
-        change: "+0.00%",
-        trend: "up"
-      }))
+      data: assets.map(a => {
+        const percentChange = a.percentChange || 0;
+        return {
+          id: a.id,
+          price: a.price.toFixed(priceDecimals(a.id)),
+          change: (percentChange >= 0 ? "+" : "") + percentChange.toFixed(2) + "%",
+          trend: percentChange >= 0 ? "up" : "down",
+          source: a.source,
+          live: a.owner !== "sim"
+        };
+      })
     }));
 
     ws.on("close", () => console.log("Client disconnected"));
@@ -168,7 +252,32 @@ async function startServer() {
 
   // API routes
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+    res.json({
+      status: "ok",
+      liveProvider: providerName,
+      liveAssets: assets.filter(a => a.owner !== "sim").map(a => a.id),
+      simulatedAssets: assets.filter(a => a.owner === "sim").map(a => a.id),
+    });
+  });
+
+  // Real OHLC history for charting (Twelve Data). Falls back on the client to
+  // the live in-memory buffer when unavailable.
+  app.get("/api/history", async (req, res) => {
+    const symbol = (req.query.symbol as string) || "XAU/USD";
+    const timeframe = (req.query.timeframe as string) || "1m";
+    const outputsize = Math.min(500, parseInt((req.query.limit as string) || "60", 10));
+    try {
+      const history = await fetchHistory(symbol, timeframe, outputsize);
+      res.json({ symbol, timeframe, source: "Twelve Data", history });
+    } catch (error) {
+      res.status(200).json({
+        symbol,
+        timeframe,
+        source: "unavailable",
+        history: [],
+        error: error instanceof Error ? error.message : "History unavailable",
+      });
+    }
   });
 
   app.get("/api/news", async (req, res) => {
