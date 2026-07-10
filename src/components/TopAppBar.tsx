@@ -1,4 +1,4 @@
-import { Bell, User, Radio, Cpu, Zap, Wifi, WifiOff, Search, X } from "lucide-react";
+import { Search, X, Wifi, WifiOff } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useMarketData } from "../services/marketService";
 import { useNewsFeed } from "../services/newsService";
@@ -15,7 +15,7 @@ export function TopAppBar({ onSearchSelect }: TopAppBarProps) {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const filteredResults = searchQuery.trim() === "" ? [] : ( [
+  const filteredResults = searchQuery.trim() === "" ? [] : ([
     ...marketData
       .filter(a => a.id.toLowerCase().includes(searchQuery.toLowerCase()))
       .map(a => ({ id: a.id, label: a.id, category: "Asset", price: a.price })),
@@ -23,8 +23,8 @@ export function TopAppBar({ onSearchSelect }: TopAppBarProps) {
       .filter(n => n.title.toLowerCase().includes(searchQuery.toLowerCase()))
       .map(n => ({ id: "news", label: n.title, category: "Intelligence", price: undefined })),
     { id: "config", label: "Bot Parameters", category: "Settings", price: undefined },
-    { id: "config", label: "Strategy Builder", category: "Settings", price: undefined }
-  ] as { id: string; label: string; category: string; price?: string }[] ).slice(0, 8);
+    { id: "config", label: "Strategy Builder", category: "Settings", price: undefined },
+  ] as { id: string; label: string; category: string; price?: string }[]).slice(0, 8);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -37,38 +37,32 @@ export function TopAppBar({ onSearchSelect }: TopAppBarProps) {
   }, []);
 
   return (
-    <header className="fixed top-0 w-full z-50 px-6 h-16 bg-surface/80 backdrop-blur-xl border-b border-outline-variant/10 flex items-center justify-between gap-6">
-      <div className="flex items-center gap-3 shrink-0">
-        <div className="relative w-10 h-10 flex items-center justify-center">
-          <div className="absolute inset-0 bg-primary/20 rounded-lg rotate-45 animate-pulse" />
-          <div className="absolute inset-0 border border-primary/40 rounded-lg -rotate-12" />
-          <Cpu className="w-6 h-6 text-primary relative z-10 drop-shadow-[0_0_8px_rgba(212,175,55,0.6)]" />
+    <header className="h-14 bg-surface-container-low border-b border-outline-variant/10 flex items-center justify-between px-4 shrink-0 z-50 gap-4">
+      {/* Brand */}
+      <div className="flex items-center gap-2.5 shrink-0">
+        <div className="w-8 h-8 rounded bg-gradient-to-br from-primary to-primary-container flex items-center justify-center text-on-primary font-black font-headline text-sm select-none">
+          W
         </div>
-        <div className="flex flex-col">
-          <span className="text-xl font-headline font-black text-on-surface tracking-tighter leading-none">
-            WINM <span className="text-primary">AI</span>
-          </span>
-          <span className="text-[8px] font-bold text-on-surface/40 uppercase tracking-[0.3em] mt-0.5">
-            Neural Trading Core
-          </span>
-        </div>
+        <span className="font-headline font-bold tracking-tight text-lg leading-none">WINM <span className="text-primary">AI</span></span>
       </div>
 
-      {/* Global Search Bar */}
-      <div ref={searchRef} className="flex-1 max-w-xl relative hidden md:block">
-        <div className={`flex items-center gap-3 px-4 h-10 rounded-full bg-surface-container-high border transition-all ${isSearchFocused ? 'border-primary ring-1 ring-primary/20' : 'border-outline-variant/20'}`}>
-          <Search className={`w-4 h-4 ${isSearchFocused ? 'text-primary' : 'text-on-surface/40'}`} />
+      {/* Search */}
+      <div ref={searchRef} className="flex-1 max-w-sm relative hidden md:block">
+        <div className={`flex items-center gap-2 px-3 h-9 rounded-md bg-surface border transition-all ${
+          isSearchFocused ? "border-primary/50 ring-1 ring-primary/10" : "border-outline-variant/15 hover:border-outline-variant/30"
+        }`}>
+          <Search className={`w-3.5 h-3.5 shrink-0 ${isSearchFocused ? "text-primary" : "text-on-surface/30"}`} />
           <input
             type="text"
-            placeholder="Search Assets, Intelligence, or Systems..."
+            placeholder="Search assets, news, commands..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={e => setSearchQuery(e.target.value)}
             onFocus={() => setIsSearchFocused(true)}
-            className="flex-1 bg-transparent border-none outline-none text-xs font-medium placeholder:text-on-surface/30"
+            className="flex-1 bg-transparent border-none outline-none text-xs placeholder:text-on-surface/30"
           />
           {searchQuery && (
-            <button onClick={() => setSearchQuery("")} className="p-1 hover:bg-surface-container-highest rounded-full">
-              <X className="w-3 h-3 text-on-surface/40" />
+            <button onClick={() => setSearchQuery("")} className="p-0.5 hover:bg-surface-container-high rounded-full">
+              <X className="w-3 h-3 text-on-surface/30" />
             </button>
           )}
         </div>
@@ -76,12 +70,12 @@ export function TopAppBar({ onSearchSelect }: TopAppBarProps) {
         <AnimatePresence>
           {isSearchFocused && filteredResults.length > 0 && (
             <motion.div
-              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              initial={{ opacity: 0, y: 8, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.98 }}
-              className="absolute top-12 left-0 right-0 bg-surface-container-high border border-outline-variant/20 rounded-xl shadow-2xl overflow-hidden backdrop-blur-2xl"
+              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              className="absolute top-11 left-0 right-0 bg-surface-container-high border border-outline-variant/20 rounded-xl shadow-2xl overflow-hidden z-50"
             >
-              <div className="p-2 space-y-1">
+              <div className="p-1.5 space-y-0.5">
                 {filteredResults.map((result, idx) => (
                   <button
                     key={`${result.id}-${idx}`}
@@ -90,14 +84,14 @@ export function TopAppBar({ onSearchSelect }: TopAppBarProps) {
                       setIsSearchFocused(false);
                       setSearchQuery("");
                     }}
-                    className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-primary/10 group transition-all"
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-primary/10 group transition-all"
                   >
-                    <div className="flex flex-col items-start gap-0.5">
-                      <span className="text-[10px] uppercase tracking-widest font-bold text-primary">{result.category}</span>
-                      <span className="text-sm font-bold text-on-surface group-hover:translate-x-1 transition-transform">{result.label}</span>
+                    <div className="flex flex-col items-start gap-0.5 text-left">
+                      <span className="text-[9px] uppercase tracking-widest font-bold text-primary">{result.category}</span>
+                      <span className="text-xs font-semibold text-on-surface group-hover:translate-x-0.5 transition-transform">{result.label}</span>
                     </div>
                     {result.price && (
-                      <span className="text-xs font-mono font-bold text-on-surface/60">{result.price}</span>
+                      <span className="text-xs font-mono font-bold text-on-surface/50">{result.price}</span>
                     )}
                   </button>
                 ))}
@@ -107,23 +101,24 @@ export function TopAppBar({ onSearchSelect }: TopAppBarProps) {
         </AnimatePresence>
       </div>
 
+      {/* Status + Equity */}
       <div className="flex items-center gap-4 shrink-0">
-        <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-sm bg-surface-container-low border border-outline-variant/10">
-          <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-secondary-container shadow-[0_0_8px_#00b954]' : 'bg-tertiary-container shadow-[0_0_8px_#ff4d4d]'} transition-all duration-500`} />
-          <span className="font-sans text-[10px] font-bold tracking-widest text-on-surface/60 uppercase">
-            {isConnected ? 'LIVE FEED ACTIVE' : 'RECONNECTING...'}
+        <div className="hidden sm:flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isConnected ? "bg-secondary-container" : "bg-tertiary-container"}`} />
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${isConnected ? "bg-secondary-container" : "bg-tertiary-container"}`} />
           </span>
-          {isConnected ? <Wifi className="w-3 h-3 text-secondary-container ml-1" /> : <WifiOff className="w-3 h-3 text-tertiary-container ml-1" />}
+          <span className={`text-xs font-medium ${isConnected ? "text-secondary-container" : "text-tertiary-container"}`}>
+            {isConnected ? "Live Feed Active" : "Reconnecting…"}
+          </span>
         </div>
-        
-        <div className="text-right hidden sm:block">
-          <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Equity</p>
-          <p className="text-primary font-bold tnum">$12,450.80</p>
+
+        <div className="h-6 w-px bg-outline-variant/15 hidden sm:block" />
+
+        <div className="flex flex-col items-end">
+          <span className="text-[10px] text-on-surface/40">Total Equity</span>
+          <span className="font-headline font-semibold text-primary text-sm leading-tight">$124,592.45</span>
         </div>
-        <button className="p-2 hover:bg-surface-container-high rounded-full transition-colors relative">
-          <Bell className="w-5 h-5 text-on-surface-variant" />
-          <div className="absolute top-2 right-2 w-2 h-2 bg-tertiary-container rounded-full border-2 border-surface" />
-        </button>
       </div>
     </header>
   );
