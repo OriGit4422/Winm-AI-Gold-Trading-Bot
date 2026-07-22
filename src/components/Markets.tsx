@@ -139,6 +139,8 @@ export function Markets({ onSelectAsset }: { onSelectAsset?: (id: string) => voi
       price: live?.price || "---",
       change: live?.change || "0.00%",
       trend: live?.trend || "up",
+      isLive: live?.live ?? false,
+      source: live?.source || "—",
       spread: live ? (Math.abs(Math.sin(priceNum)) * 0.4 + 0.1).toFixed(1) : "0.0",
       volume: live ? (Math.abs(Math.cos(priceNum)) * 100 + 50).toFixed(2) + "M" : "0.00M"
     };
@@ -287,7 +289,19 @@ export function Markets({ onSelectAsset }: { onSelectAsset?: (id: string) => voi
                         {asset.type === "crypto" && <Bitcoin className="w-5 h-5 text-primary" />}
                       </div>
                       <div>
-                        <div className="font-headline font-bold text-on-surface">{asset.id}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-headline font-bold text-on-surface">{asset.id}</span>
+                          <span
+                            title={`Source: ${asset.source}`}
+                            className={`text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full ${
+                              asset.isLive
+                                ? "bg-secondary-container/15 text-secondary-container"
+                                : "bg-tertiary-container/15 text-tertiary-container"
+                            }`}
+                          >
+                            {asset.isLive ? "Live" : "Sim"}
+                          </span>
+                        </div>
                         <div className="text-[10px] text-on-surface/40 font-bold uppercase tracking-widest">{asset.name}</div>
                       </div>
                     </div>

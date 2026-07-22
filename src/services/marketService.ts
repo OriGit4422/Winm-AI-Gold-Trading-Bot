@@ -5,6 +5,10 @@ export interface MarketAsset {
   price: string;
   change: string;
   trend: "up" | "down";
+  /** Data source, e.g. "Binance", "Twelve Data", "Simulated". */
+  source?: string;
+  /** True when backed by an authentic vendor feed (not local simulation). */
+  live?: boolean;
 }
 
 export interface COTData {
@@ -131,6 +135,29 @@ export function useAssetHistory(assetId: string, timeframe: Timeframe = "1m", li
       setHistory([]);
     }
   }, [assetId, timeframe, historyData]);
+
+  // Prefer authentic OHLC history from the server when a provider is configured.
+  useEffect(() => {
+    let cancelled = false;
+    const loadRealHistory = async () => {
+      try {
+        const res = await fetch(
+          `/api/history?symbol=${encodeURIComponent(assetId)}&timeframe=${timeframe}&limit=${limit}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.history) && data.history.length > 0) {
+          setHistory(data.history);
+        }
+      } catch {
+        /* fall back to the simulated/live-buffer history below */
+      }
+    };
+    loadRealHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [assetId, timeframe, limit]);
 
   // Initialize with mock data
   useEffect(() => {
