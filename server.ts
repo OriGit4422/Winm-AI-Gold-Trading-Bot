@@ -56,6 +56,10 @@ async function startServer() {
     history: { time: string; price: number }[];
     owner: Owner;
     source: string;
+    // True once this asset has received at least one authentic update (a Binance
+    // tick or a successful provider quote). Until then it still holds its seed
+    // price, so it must not be advertised as live.
+    hasLiveData?: boolean;
   }
 
   // Ownership:
@@ -81,9 +85,23 @@ async function startServer() {
   // Symbols we ask the authentic REST provider to quote (everything not on Binance).
   const providerSymbols = assets.filter(a => a.owner === "provider").map(a => a.id);
 
-  // Poll the vendor for real forex/metals quotes. Interval is configurable to
-  // respect provider rate limits (Twelve Data free tier ~8 credits/min).
-  const POLL_INTERVAL = Math.max(2000, parseInt(process.env.MARKET_POLL_INTERVAL_MS || "10000", 10));
+  // Poll the vendor for real forex/metals quotes. Each poll spends one credit
+  // per symbol, and free tiers allow only a few credits/min (Twelve Data free
+  // ~8). Derive the default interval from the symbol count so following the
+  // defaults never trips the rate limit; MARKET_POLL_INTERVAL_MS overrides it
+  // (lower on paid plans for faster refresh, raise if you add symbols).
+  const CREDITS_PER_MIN = Math.max(1, parseInt(process.env.MARKET_CREDITS_PER_MIN || "8", 10));
+  const symbolCount = providerSymbols.length || 1;
+  // interval (ms) so that symbolCount credits are spent at most CREDITS_PER_MIN/min,
+  // rounded up to whole seconds. 6 symbols @ 8 credits/min -> 45000ms.
+  const safeDefaultInterval = Math.ceil((symbolCount / CREDITS_PER_MIN) * 60) * 1000;
+  const POLL_INTERVAL = Math.max(2000, parseInt(process.env.MARKET_POLL_INTERVAL_MS || String(safeDefaultInterval), 10));
+  if (providerSymbols.length > 0) {
+    console.log(
+      `[Market Feed] Polling ${symbolCount} symbol(s) every ${POLL_INTERVAL}ms ` +
+      `(~${((symbolCount * 60000) / POLL_INTERVAL).toFixed(1)} credits/min; budget ${CREDITS_PER_MIN}/min).`
+    );
+  }
   const pollLiveQuotes = async () => {
     if (providerSymbols.length === 0) return;
     try {
@@ -94,6 +112,7 @@ async function startServer() {
           asset.price = q.price;
           asset.percentChange = q.percentChange;
           asset.source = q.source;
+          asset.hasLiveData = true;
         }
       }
     } catch (err) {
@@ -134,6 +153,7 @@ async function startServer() {
           if (asset && asset.owner === "binance") {
             asset.price = price;
             asset.percentChange = percentChange;
+            asset.hasLiveData = true;
           }
         }
       } else if (msg.bids && msg.asks) {
@@ -202,7 +222,7 @@ async function startServer() {
           change: (percentChange >= 0 ? "+" : "") + percentChange.toFixed(2) + "%",
           trend: percentChange >= 0 ? "up" : "down",
           source: a.source,
-          live: a.owner !== "sim"
+          live: a.owner !== "sim" && a.hasLiveData === true
         };
       })
     });
@@ -242,7 +262,7 @@ async function startServer() {
           change: (percentChange >= 0 ? "+" : "") + percentChange.toFixed(2) + "%",
           trend: percentChange >= 0 ? "up" : "down",
           source: a.source,
-          live: a.owner !== "sim"
+          live: a.owner !== "sim" && a.hasLiveData === true
         };
       })
     }));
