@@ -43,7 +43,8 @@ Twelve Data (or Finnhub) key — otherwise those assets run in clearly-labelled
    - `FINNHUB_API_KEY` — optional fallback forex/metals provider (https://finnhub.io/)
    - `VITE_NEWS_API_KEY` — news feed (https://newsapi.org/)
    - `VITE_FRED_API_KEY`, `VITE_ALPHA_VANTAGE_API_KEY` — intermarket indices
-   - `MARKET_POLL_INTERVAL_MS` — REST quote poll interval (default `10000`; raise it on free API tiers to respect rate limits)
+   - `MARKET_POLL_INTERVAL_MS` — REST quote poll interval (optional; auto-derived from symbol count and `MARKET_CREDITS_PER_MIN` when unset — e.g. 6 symbols → 45s on the free tier)
+   - `MARKET_CREDITS_PER_MIN` — provider credit budget used to size the auto interval (default `8`, matching Twelve Data's free tier)
 3. Run the app:
    ```bash
    npm run dev
@@ -57,8 +58,16 @@ Twelve Data (or Finnhub) key — otherwise those assets run in clearly-labelled
 
 ## Notes on rate limits
 
-The forex/metals provider is polled over REST on `MARKET_POLL_INTERVAL_MS`.
-Twelve Data's free tier allows roughly 8 credits/minute and each symbol costs a
-credit, so with several symbols keep the interval at 10s or higher (or upgrade
-your plan) to avoid throttling. Crypto and the gold proxy stream continuously
-over WebSocket and are not affected by this limit.
+The forex/metals provider is polled over REST. Twelve Data's free tier allows
+roughly 8 credits/minute and each symbol costs a credit per poll. To avoid
+throttling out of the box, the poll interval is **auto-derived** from the number
+of provider symbols and `MARKET_CREDITS_PER_MIN` (default 8) — e.g. 6 symbols
+resolves to a 45s interval (~8 credits/min). Set `MARKET_POLL_INTERVAL_MS`
+explicitly to override: lower it for faster refresh on a paid plan, or raise it
+if you add symbols. On startup the server logs the chosen interval and the
+resulting credits/min. Crypto and the gold proxy stream continuously over
+WebSocket and are not affected by this limit.
+
+Provider-backed assets are only flagged **LIVE** once a real quote (or Binance
+tick) has actually arrived — a pending, failing, or throttled provider shows
+**SIM** rather than masquerading its seed price as live data.
